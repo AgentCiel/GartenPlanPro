@@ -113,8 +113,24 @@ private fun TimingCard(plant: Plant) {
         Column(Modifier.padding(16.dp)) {
             Text("Aussaat & Ernte", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(12.dp))
-            if (plant.sowIndoorStart != null && plant.sowIndoorEnd != null) InfoRow(Icons.Default.Home, "Vorziehen", "${monthName(plant.sowIndoorStart)} - ${monthName(plant.sowIndoorEnd)}")
-            if (plant.sowOutdoorStart != null && plant.sowOutdoorEnd != null) InfoRow(Icons.Default.WbSunny, "Direktsaat", "${monthName(plant.sowOutdoorStart)} - ${monthName(plant.sowOutdoorEnd)}")
+            val indoorStart = plant.sowIndoorStart
+            val indoorEnd = plant.sowIndoorEnd
+            if (indoorStart != null && indoorEnd != null) {
+                InfoRow(
+                    Icons.Default.Home,
+                    "Vorziehen",
+                    "${monthName(indoorStart)} - ${monthName(indoorEnd)}"
+                )
+            }
+            val outdoorStart = plant.sowOutdoorStart
+            val outdoorEnd = plant.sowOutdoorEnd
+            if (outdoorStart != null && outdoorEnd != null) {
+                InfoRow(
+                    Icons.Default.WbSunny,
+                    "Direktsaat",
+                    "${monthName(outdoorStart)} - ${monthName(outdoorEnd)}"
+                )
+            }
             InfoRow(Icons.Default.Agriculture, "Ernte", "${monthName(plant.harvestStart)} - ${monthName(plant.harvestEnd)}")
             plant.daysToHarvest?.let { InfoRow(Icons.Default.Timer, "Kulturzeit", "$it Tage") }
         }
@@ -154,7 +170,10 @@ private fun SpacingCard(plant: Plant) {
             Spacer(Modifier.height(12.dp))
             InfoRow(Icons.Default.SwapHoriz, "Abstand in Reihe", "${plant.spacingInRowCm} cm")
             InfoRow(Icons.Default.SwapVert, "Reihenabstand", "${plant.spacingBetweenRowsCm} cm")
-            if (plant.plantDepthCm != null && plant.plantDepthCm > 0) InfoRow(Icons.Default.Layers, "Pflanztiefe", "${plant.plantDepthCm} cm")
+            val depth = plant.plantDepthCm
+            if (depth != null && depth > 0) {
+                InfoRow(Icons.Default.Layers, "Pflanztiefe", "$depth cm")
+            }
         }
     }
 }

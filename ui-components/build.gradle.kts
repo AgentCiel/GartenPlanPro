@@ -44,7 +44,9 @@ dependencies {
     // Compose BOM
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.bundles.compose)
-    
+    implementation(libs.androidx.core.ktx)
+
+
     // Coil for images
     implementation(libs.coil.compose)
 
