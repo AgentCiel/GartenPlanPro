@@ -34,11 +34,8 @@ android {
 }
 
 dependencies {
-    // Project Modules
+    // Module dependencies
     implementation(project(":core"))
-
-    // Core Android
-    implementation(libs.androidx.core.ktx)
 
     // Hilt
     implementation(libs.hilt.android)

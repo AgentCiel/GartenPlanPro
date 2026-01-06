@@ -6,7 +6,7 @@ plugins {
 }
 
 android {
-    namespace = "com.gartenplan.pro.feature.garden"  // Anpassen pro Feature!
+    namespace = "com.gartenplan.pro.feature.garden"
     compileSdk = 34
 
     defaultConfig {
@@ -40,19 +40,14 @@ android {
 }
 
 dependencies {
-    // Project Modules
+    // Module dependencies
     implementation(project(":core"))
     implementation(project(":domain"))
     implementation(project(":ui-components"))
 
-    // Core Android
-    implementation(libs.androidx.core.ktx)
-    implementation(libs.bundles.lifecycle)
-
-    // Compose
+    // Compose BOM
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.bundles.compose)
-    debugImplementation(libs.bundles.compose.debug)
 
     // Navigation
     implementation(libs.androidx.navigation.compose)
@@ -62,11 +57,8 @@ dependencies {
     ksp(libs.hilt.android.compiler)
     implementation(libs.androidx.hilt.navigation.compose)
 
-    // Coroutines
-    implementation(libs.bundles.coroutines)
-
-    // Image Loading
-    implementation(libs.coil.compose)
+    // Lifecycle
+    implementation(libs.bundles.lifecycle)
 
     // Testing
     testImplementation(libs.junit)

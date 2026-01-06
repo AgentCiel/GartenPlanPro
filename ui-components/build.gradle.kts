@@ -40,11 +40,9 @@ android {
 dependencies {
     // Module dependencies
     implementation(project(":core"))
-    // NOTE: We intentionally do NOT depend on :domain here
-    // PlantCard is in feature-plants where domain is available
     
-    // Compose
-    implementation(platform(libs.compose.bom))
+    // Compose BOM
+    implementation(platform(libs.androidx.compose.bom))
     implementation(libs.bundles.compose)
     
     // Coil for images

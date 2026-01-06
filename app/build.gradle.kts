@@ -14,7 +14,7 @@ android {
         minSdk = 26
         targetSdk = 34
         versionCode = 1
-        versionName = "1.0.0"
+        versionName = "1.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -24,16 +24,11 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = true
-            isShrinkResources = true
+            isMinifyEnabled = false
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro"
             )
-        }
-        debug {
-            isMinifyEnabled = false
-            applicationIdSuffix = ".debug"
         }
     }
     compileOptions {
@@ -57,22 +52,21 @@ android {
 }
 
 dependencies {
-    // Project Modules
+    // Module dependencies
     implementation(project(":core"))
     implementation(project(":data"))
     implementation(project(":domain"))
+    implementation(project(":ui-components"))
     implementation(project(":feature-garden"))
     implementation(project(":feature-plants"))
     implementation(project(":feature-calendar"))
     implementation(project(":feature-compost"))
-    implementation(project(":ui-components"))
 
     // Core Android
     implementation(libs.androidx.core.ktx)
-    implementation(libs.bundles.lifecycle)
     implementation(libs.androidx.activity.compose)
 
-    // Compose
+    // Compose BOM
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.bundles.compose)
     debugImplementation(libs.bundles.compose.debug)
@@ -80,13 +74,13 @@ dependencies {
     // Navigation
     implementation(libs.androidx.navigation.compose)
 
+    // Lifecycle
+    implementation(libs.bundles.lifecycle)
+
     // Hilt
     implementation(libs.hilt.android)
     ksp(libs.hilt.android.compiler)
     implementation(libs.androidx.hilt.navigation.compose)
-
-    // Coroutines
-    implementation(libs.bundles.coroutines)
 
     // Testing
     testImplementation(libs.junit)

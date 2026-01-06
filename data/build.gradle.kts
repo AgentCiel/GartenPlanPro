@@ -35,12 +35,9 @@ android {
 }
 
 dependencies {
-    // Project Modules
+    // Module dependencies
     implementation(project(":core"))
     implementation(project(":domain"))
-
-    // Core Android
-    implementation(libs.androidx.core.ktx)
 
     // Room Database
     implementation(libs.bundles.room)
@@ -56,7 +53,7 @@ dependencies {
     // DataStore
     implementation(libs.androidx.datastore.preferences)
 
-    // Serialization (für JSON Pflanzendaten)
+    // Serialization (for JSON parsing)
     implementation(libs.kotlinx.serialization.json)
 
     // Testing
