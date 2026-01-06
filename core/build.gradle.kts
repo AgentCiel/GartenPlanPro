@@ -35,6 +35,9 @@ dependencies {
     // Core Android
     implementation(libs.androidx.core.ktx)
 
+    // Lifecycle & ViewModel (for BaseViewModel)
+    implementation(libs.bundles.lifecycle)
+
     // Coroutines
     implementation(libs.bundles.coroutines)
 
