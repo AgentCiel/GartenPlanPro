@@ -38,18 +38,16 @@ android {
 }
 
 dependencies {
-    // Project Modules
+    // Module dependencies
     implementation(project(":core"))
-
-    // Core Android
-    implementation(libs.androidx.core.ktx)
-
+    // NOTE: We intentionally do NOT depend on :domain here
+    // PlantCard is in feature-plants where domain is available
+    
     // Compose
-    implementation(platform(libs.androidx.compose.bom))
+    implementation(platform(libs.compose.bom))
     implementation(libs.bundles.compose)
-    debugImplementation(libs.bundles.compose.debug)
-
-    // Image Loading
+    
+    // Coil for images
     implementation(libs.coil.compose)
 
     // Testing

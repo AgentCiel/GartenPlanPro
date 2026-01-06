@@ -13,6 +13,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.gartenplan.pro.core.constants.PlantCategory
 import com.gartenplan.pro.domain.model.Plant
+import com.gartenplan.pro.feature.plants.components.PlantCard
 import com.gartenplan.pro.ui.components.*
 
 @OptIn(ExperimentalMaterial3Api::class)
