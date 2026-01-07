@@ -26,18 +26,18 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         setContent {
             GartenPlanTheme {
-                GartenPlanApp()
+                GartenPlanAppContent()  // <-- GEÄNDERT
             }
         }
     }
 }
 
 @Composable
-fun GartenPlanApp() {
+fun GartenPlanAppContent() {  // <-- GEÄNDERT von GartenPlanApp()
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
-    
+
     // Determine if we should show bottom navigation
     val showBottomBar = Screen.bottomNavItems.any { screen ->
         currentDestination?.hierarchy?.any { it.route == screen.route } == true
@@ -49,10 +49,10 @@ fun GartenPlanApp() {
             if (showBottomBar) {
                 NavigationBar {
                     Screen.bottomNavItems.forEach { screen ->
-                        val selected = currentDestination?.hierarchy?.any { 
-                            it.route == screen.route 
+                        val selected = currentDestination?.hierarchy?.any {
+                            it.route == screen.route
                         } == true
-                        
+
                         NavigationBarItem(
                             icon = {
                                 Icon(
@@ -64,14 +64,10 @@ fun GartenPlanApp() {
                             selected = selected,
                             onClick = {
                                 navController.navigate(screen.route) {
-                                    // Pop up to the start destination of the graph to
-                                    // avoid building up a large stack of destinations
                                     popUpTo(navController.graph.findStartDestination().id) {
                                         saveState = true
                                     }
-                                    // Avoid multiple copies of the same destination
                                     launchSingleTop = true
-                                    // Restore state when reselecting a previously selected item
                                     restoreState = true
                                 }
                             }
