@@ -45,6 +45,7 @@ dependencies {
     implementation(platform(libs.androidx.compose.bom))
     implementation(libs.bundles.compose)
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.core)  // <-- NEU: für WindowCompat
 
 
     // Coil for images
