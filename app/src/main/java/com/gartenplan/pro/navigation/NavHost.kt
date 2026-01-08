@@ -11,10 +11,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.gartenplan.pro.feature.calendar.CalendarScreen
 import com.gartenplan.pro.feature.compost.CompostListScreen
-import com.gartenplan.pro.feature.garden.CreateBedScreen
-import com.gartenplan.pro.feature.garden.CreateGardenScreen
-import com.gartenplan.pro.feature.garden.GardenDetailScreen
 import com.gartenplan.pro.feature.garden.GardenListScreen
+import com.gartenplan.pro.feature.garden.canvas.GardenCanvasScreen
+import com.gartenplan.pro.feature.garden.canvas.QuickGardenSetupScreen
 import com.gartenplan.pro.feature.plants.PlantDetailScreen
 import com.gartenplan.pro.feature.plants.PlantListScreen
 
@@ -34,54 +33,75 @@ fun GartenNavHost(
         exitTransition = { fadeOut(animationSpec = tween(300)) }
     ) {
         // ==================== GARDEN ====================
+        
+        // Garden List
         composable(route = Screen.Garden.route) {
             GardenListScreen(
                 onGardenClick = { gardenId ->
-                    navController.navigate(Routes.gardenDetail(gardenId))
+                    navController.navigate(Routes.gardenCanvas(gardenId))
                 },
                 onCreateGarden = {
-                    navController.navigate(Routes.GARDEN_CREATE)
+                    navController.navigate(Routes.GARDEN_SETUP)
                 }
             )
         }
 
-        composable(route = Routes.GARDEN_CREATE) {
-            CreateGardenScreen(
-                onNavigateBack = { navController.popBackStack() },
-                onGardenCreated = { gardenId ->
-                    navController.navigate(Routes.gardenDetail(gardenId)) {
+        // Quick Garden Setup (size presets)
+        composable(route = Routes.GARDEN_SETUP) {
+            QuickGardenSetupScreen(
+                onGardenCreated = { name, widthCm, heightCm ->
+                    navController.navigate(Routes.gardenCanvasNew(name, widthCm, heightCm)) {
                         popUpTo(Screen.Garden.route)
                     }
-                }
-            )
-        }
-
-        composable(
-            route = Routes.GARDEN_DETAIL,
-            arguments = listOf(navArgument("gardenId") { type = NavType.StringType })
-        ) { backStackEntry ->
-            val gardenId = backStackEntry.arguments?.getString("gardenId") ?: return@composable
-            GardenDetailScreen(
-                gardenId = gardenId,
-                onNavigateBack = { navController.popBackStack() },
-                onBedClick = { bedId ->
-                    navController.navigate(Routes.bedDetail(gardenId, bedId))
                 },
-                onAddBed = {
-                    navController.navigate(Routes.createBed(gardenId))
-                }
+                onNavigateBack = { navController.popBackStack() }
             )
         }
 
+        // Garden Canvas (existing garden)
         composable(
-            route = Routes.CREATE_BED,
+            route = Routes.GARDEN_CANVAS,
             arguments = listOf(navArgument("gardenId") { type = NavType.StringType })
         ) { backStackEntry ->
-            val gardenId = backStackEntry.arguments?.getString("gardenId") ?: return@composable
-            CreateBedScreen(
+            val gardenId = backStackEntry.arguments?.getString("gardenId")
+            GardenCanvasScreen(
                 gardenId = gardenId,
-                onNavigateBack = { navController.popBackStack() },
-                onBedCreated = { navController.popBackStack() }
+                onNavigateBack = { navController.popBackStack() }
+            )
+        }
+
+        // Garden Canvas (new garden)
+        composable(
+            route = Routes.GARDEN_CANVAS_NEW,
+            arguments = listOf(
+                navArgument("name") { 
+                    type = NavType.StringType
+                    defaultValue = "Mein Garten"
+                },
+                navArgument("width") { 
+                    type = NavType.IntType
+                    defaultValue = 500
+                },
+                navArgument("height") { 
+                    type = NavType.IntType
+                    defaultValue = 400
+                }
+            )
+        ) { backStackEntry ->
+            val name = backStackEntry.arguments?.getString("name") ?: "Mein Garten"
+            val width = backStackEntry.arguments?.getInt("width") ?: 500
+            val height = backStackEntry.arguments?.getInt("height") ?: 400
+            
+            GardenCanvasScreen(
+                gardenId = null,
+                gardenName = name,
+                gardenWidthCm = width,
+                gardenHeightCm = height,
+                onNavigateBack = { 
+                    navController.navigate(Screen.Garden.route) {
+                        popUpTo(Screen.Garden.route) { inclusive = true }
+                    }
+                }
             )
         }
 

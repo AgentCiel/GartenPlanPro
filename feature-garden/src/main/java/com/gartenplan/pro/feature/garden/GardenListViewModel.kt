@@ -6,15 +6,13 @@ import com.gartenplan.pro.domain.model.Garden
 import com.gartenplan.pro.domain.usecase.garden.DeleteGardenUseCase
 import com.gartenplan.pro.domain.usecase.garden.GetAllGardensUseCase
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.catch
+import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 sealed interface GardenListUiState {
     data object Loading : GardenListUiState
+    data object Empty : GardenListUiState
     data class Success(val gardens: List<Garden>) : GardenListUiState
     data class Error(val message: String) : GardenListUiState
 }
@@ -36,17 +34,25 @@ class GardenListViewModel @Inject constructor(
         viewModelScope.launch {
             getAllGardensUseCase()
                 .catch { e ->
-                    _uiState.value = GardenListUiState.Error(e.message ?: "Unbekannter Fehler")
+                    _uiState.value = GardenListUiState.Error(e.message ?: "Fehler beim Laden")
                 }
                 .collect { gardens ->
-                    _uiState.value = GardenListUiState.Success(gardens)
+                    _uiState.value = if (gardens.isEmpty()) {
+                        GardenListUiState.Empty
+                    } else {
+                        GardenListUiState.Success(gardens)
+                    }
                 }
         }
     }
 
     fun deleteGarden(gardenId: String) {
         viewModelScope.launch {
-            deleteGardenUseCase(gardenId)
+            try {
+                deleteGardenUseCase(gardenId)
+            } catch (e: Exception) {
+                // Error handled by Flow refresh
+            }
         }
     }
 }
