@@ -11,6 +11,9 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.gartenplan.pro.feature.calendar.CalendarScreen
 import com.gartenplan.pro.feature.compost.CompostListScreen
+import com.gartenplan.pro.feature.garden.CreateBedScreen
+import com.gartenplan.pro.feature.garden.CreateGardenScreen
+import com.gartenplan.pro.feature.garden.GardenDetailScreen
 import com.gartenplan.pro.feature.garden.GardenListScreen
 import com.gartenplan.pro.feature.plants.PlantDetailScreen
 import com.gartenplan.pro.feature.plants.PlantListScreen
@@ -41,21 +44,47 @@ fun GartenNavHost(
                 }
             )
         }
-        
+
+        composable(route = Routes.GARDEN_CREATE) {
+            CreateGardenScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onGardenCreated = { gardenId ->
+                    navController.navigate(Routes.gardenDetail(gardenId)) {
+                        popUpTo(Screen.Garden.route)
+                    }
+                }
+            )
+        }
+
         composable(
             route = Routes.GARDEN_DETAIL,
             arguments = listOf(navArgument("gardenId") { type = NavType.StringType })
         ) { backStackEntry ->
             val gardenId = backStackEntry.arguments?.getString("gardenId") ?: return@composable
-            // GardenDetailScreen(gardenId = gardenId, onBack = { navController.popBackStack() })
-            // TODO: Implement GardenDetailScreen
+            GardenDetailScreen(
+                gardenId = gardenId,
+                onNavigateBack = { navController.popBackStack() },
+                onBedClick = { bedId ->
+                    navController.navigate(Routes.bedDetail(gardenId, bedId))
+                },
+                onAddBed = {
+                    navController.navigate(Routes.createBed(gardenId))
+                }
+            )
         }
-        
-        composable(route = Routes.GARDEN_CREATE) {
-            // CreateGardenScreen(onBack = { navController.popBackStack() })
-            // TODO: Implement CreateGardenScreen
+
+        composable(
+            route = Routes.CREATE_BED,
+            arguments = listOf(navArgument("gardenId") { type = NavType.StringType })
+        ) { backStackEntry ->
+            val gardenId = backStackEntry.arguments?.getString("gardenId") ?: return@composable
+            CreateBedScreen(
+                gardenId = gardenId,
+                onNavigateBack = { navController.popBackStack() },
+                onBedCreated = { navController.popBackStack() }
+            )
         }
-        
+
         // ==================== PLANTS ====================
         composable(route = Screen.Plants.route) {
             PlantListScreen(
@@ -64,7 +93,7 @@ fun GartenNavHost(
                 }
             )
         }
-        
+
         composable(
             route = Routes.PLANT_DETAIL,
             arguments = listOf(navArgument("plantId") { type = NavType.StringType })
@@ -75,7 +104,7 @@ fun GartenNavHost(
                 onBack = { navController.popBackStack() }
             )
         }
-        
+
         // ==================== CALENDAR ====================
         composable(route = Screen.Calendar.route) {
             CalendarScreen(
@@ -84,16 +113,14 @@ fun GartenNavHost(
                 }
             )
         }
-        
+
         composable(
             route = Routes.TASK_DETAIL,
             arguments = listOf(navArgument("taskId") { type = NavType.StringType })
         ) { backStackEntry ->
-            val taskId = backStackEntry.arguments?.getString("taskId") ?: return@composable
-            // TaskDetailScreen(taskId = taskId, onBack = { navController.popBackStack() })
-            // TODO: Implement TaskDetailScreen
+            // TODO: TaskDetailScreen
         }
-        
+
         // ==================== COMPOST ====================
         composable(route = Screen.Compost.route) {
             CompostListScreen(
@@ -105,19 +132,16 @@ fun GartenNavHost(
                 }
             )
         }
-        
+
         composable(
             route = Routes.COMPOST_DETAIL,
             arguments = listOf(navArgument("compostId") { type = NavType.StringType })
         ) { backStackEntry ->
-            val compostId = backStackEntry.arguments?.getString("compostId") ?: return@composable
-            // CompostDetailScreen(compostId = compostId, onBack = { navController.popBackStack() })
-            // TODO: Implement CompostDetailScreen
+            // TODO: CompostDetailScreen
         }
-        
+
         composable(route = Routes.COMPOST_CREATE) {
-            // CreateCompostScreen(onBack = { navController.popBackStack() })
-            // TODO: Implement CreateCompostScreen
+            // TODO: CreateCompostScreen
         }
     }
 }
