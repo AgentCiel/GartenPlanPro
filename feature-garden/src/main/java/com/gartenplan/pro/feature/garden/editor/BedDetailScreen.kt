@@ -24,12 +24,12 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 
 /**
  * 5.3 Bed Detail Screen – Inhaltliche Planung
- * 
+ *
  * Zweck: "Was passiert IN diesem Beet?"
  * - Beetname & Größe
  * - Geplante Pflanzen
  * - Warnungen (schlechte Nachbarn, Fruchtfolge)
- * 
+ *
  * KEIN Zeichnen hier! Reines Planen & Entscheiden.
  */
 @OptIn(ExperimentalMaterial3Api::class)
@@ -37,13 +37,25 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 fun BedDetailScreen(
     bedId: String,
     onNavigateBack: () -> Unit,
-    onOpenPlantPicker: () -> Unit,
+    onOpenPlantPicker: () -> Unit = {}, // Kept for compatibility but not used
     viewModel: BedDetailViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    
+
     LaunchedEffect(bedId) {
         viewModel.loadBed(bedId)
+    }
+
+    // Plant Picker Dialog - now integrated directly here
+    if (state.showPlantPicker) {
+        PlantPickerDialog(
+            plants = state.availablePlants,
+            onPlantSelected = { plant ->
+                viewModel.addPlant(plant.id)
+                viewModel.hidePlantPicker()
+            },
+            onDismiss = { viewModel.hidePlantPicker() }
+        )
     }
 
     Scaffold(
@@ -64,7 +76,7 @@ fun BedDetailScreen(
         },
         floatingActionButton = {
             ExtendedFloatingActionButton(
-                onClick = onOpenPlantPicker,
+                onClick = { viewModel.showPlantPicker() },
                 icon = { Icon(Icons.Default.Add, null) },
                 text = { Text("Pflanze hinzufügen") }
             )
@@ -112,7 +124,7 @@ fun BedDetailScreen(
                 
                 if (state.plants.isEmpty()) {
                     item {
-                        EmptyPlantsHint(onAddPlant = onOpenPlantPicker)
+                        EmptyPlantsHint(onAddPlant = { viewModel.showPlantPicker() })
                     }
                 } else {
                     items(state.plants) { plant ->

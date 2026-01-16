@@ -17,7 +17,9 @@ data class BedDetailState(
     val warnings: List<BedWarning> = emptyList(),
     val isLoading: Boolean = false,
     val isEditingName: Boolean = false,
-    val editedName: String = ""
+    val editedName: String = "",
+    val availablePlants: List<Plant> = emptyList(),
+    val showPlantPicker: Boolean = false
 )
 
 @HiltViewModel
@@ -40,9 +42,18 @@ class BedDetailViewModel @Inject constructor(
         viewModelScope.launch {
             getAllPlantsUseCase().collect { plants ->
                 allPlants = plants
+                _state.value = _state.value.copy(availablePlants = plants)
                 updatePlantWarnings()
             }
         }
+    }
+
+    fun showPlantPicker() {
+        _state.value = _state.value.copy(showPlantPicker = true)
+    }
+
+    fun hidePlantPicker() {
+        _state.value = _state.value.copy(showPlantPicker = false)
     }
 
     fun loadBed(bedId: String) {

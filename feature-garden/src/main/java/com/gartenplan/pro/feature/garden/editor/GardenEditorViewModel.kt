@@ -4,12 +4,14 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.gartenplan.pro.core.constants.BedShape
 import com.gartenplan.pro.domain.model.Bed
 import com.gartenplan.pro.domain.usecase.garden.*
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
 import kotlinx.coroutines.launch
 import javax.inject.Inject
+import kotlin.math.sqrt
 
 @HiltViewModel
 class GardenEditorViewModel @Inject constructor(
@@ -150,7 +152,7 @@ class GardenEditorViewModel @Inject constructor(
         val posM = pxToMeters(positionPx)
         
         when (_state.value.tool) {
-            BuildTool.ADD_BED, BuildTool.ADD_PATH -> {
+            BuildTool.ADD_BED, BuildTool.ADD_CIRCLE_BED, BuildTool.ADD_PATH -> {
                 // Zeichnen starten
                 _state.value = _state.value.copy(
                     isDrawing = true,
@@ -199,8 +201,14 @@ class GardenEditorViewModel @Inject constructor(
         
         when {
             current.isDrawing -> {
-                // Preview aktualisieren
-                _state.value = current.copy(drawCurrent = posM)
+                // Preview aktualisieren and check for overlap
+                val previewBed = when (current.tool) {
+                    BuildTool.ADD_BED -> createPreviewBed(current.drawStart, posM)
+                    BuildTool.ADD_CIRCLE_BED -> createPreviewCircleBed(current.drawStart, posM)
+                    else -> null
+                }
+                val hasOverlap = previewBed?.let { current.beds.hasOverlap(it) } ?: false
+                _state.value = current.copy(drawCurrent = posM, hasOverlap = hasOverlap)
             }
             current.isDragging -> {
                 moveBed(posM)
@@ -225,26 +233,110 @@ class GardenEditorViewModel @Inject constructor(
         }
     }
 
+    private fun createPreviewBed(start: Offset?, end: Offset?): EditorBed? {
+        if (start == null || end == null) return null
+        val rawWidth = kotlin.math.abs(end.x - start.x)
+        val rawHeight = kotlin.math.abs(end.y - start.y)
+        val clampedWidth = rawWidth.coerceAtMost(_state.value.gardenWidthM)
+        val clampedHeight = rawHeight.coerceAtMost(_state.value.gardenHeightM)
+        if (clampedWidth < 0.2f || clampedHeight < 0.2f) return null
+
+        val rawX = minOf(start.x, end.x).coerceAtLeast(0f)
+        val rawY = minOf(start.y, end.y).coerceAtLeast(0f)
+
+        return EditorBed(
+            x = clampX(rawX, clampedWidth),
+            y = clampY(rawY, clampedHeight),
+            width = clampedWidth,
+            height = clampedHeight,
+            shape = BedShape.RECTANGLE
+        )
+    }
+
+    private fun createPreviewCircleBed(start: Offset?, end: Offset?): EditorBed? {
+        if (start == null || end == null) return null
+
+        // Calculate radius as distance from start to current point
+        val dx = end.x - start.x
+        val dy = end.y - start.y
+        val radius = sqrt(dx * dx + dy * dy)
+
+        // Minimum radius 10cm (20cm diameter)
+        if (radius < 0.1f) return null
+
+        val diameter = radius * 2
+
+        // Calculate top-left corner of bounding box
+        val rawX = (start.x - radius).coerceAtLeast(0f)
+        val rawY = (start.y - radius).coerceAtLeast(0f)
+
+        // Clamp to garden bounds
+        val clampedDiameter = minOf(
+            diameter,
+            _state.value.gardenWidthM - rawX,
+            _state.value.gardenHeightM - rawY,
+            _state.value.gardenWidthM,
+            _state.value.gardenHeightM
+        )
+
+        if (clampedDiameter < 0.2f) return null
+
+        return EditorBed(
+            x = clampX(rawX, clampedDiameter),
+            y = clampY(rawY, clampedDiameter),
+            width = clampedDiameter,
+            height = clampedDiameter,
+            shape = BedShape.ROUND
+        )
+    }
+
     private fun finishDrawing() {
         val start = _state.value.drawStart ?: return
         val end = _state.value.drawCurrent ?: return
-        
+
         when (_state.value.tool) {
             BuildTool.ADD_BED -> {
-                val width = kotlin.math.abs(end.x - start.x)
-                val height = kotlin.math.abs(end.y - start.y)
-                
-                // Mindestgröße: 20cm x 20cm
-                if (width >= 0.2f && height >= 0.2f) {
-                    val bed = EditorBed(
-                        x = clampX(minOf(start.x, end.x), width),
-                        y = clampY(minOf(start.y, end.y), height),
-                        width = width.coerceAtMost(_state.value.gardenWidthM),
-                        height = height.coerceAtMost(_state.value.gardenHeightM)
-                    )
-                    
+                val bed = createPreviewBed(start, end)
+
+                if (bed != null) {
+                    // Check for overlap - don't create if overlapping
+                    if (_state.value.beds.hasOverlap(bed)) {
+                        // Reset drawing state but don't create bed
+                        _state.value = _state.value.copy(
+                            isDrawing = false,
+                            drawStart = null,
+                            drawCurrent = null,
+                            hasOverlap = false
+                        )
+                        return
+                    }
+
                     addBed(bed)
-                    
+
+                    // Automatisch auswählen und zu SELECT wechseln
+                    _state.value = _state.value.copy(
+                        selectedBedId = bed.id,
+                        tool = BuildTool.SELECT
+                    )
+                }
+            }
+            BuildTool.ADD_CIRCLE_BED -> {
+                val bed = createPreviewCircleBed(start, end)
+
+                if (bed != null) {
+                    // Check for overlap - don't create if overlapping
+                    if (_state.value.beds.hasOverlap(bed)) {
+                        _state.value = _state.value.copy(
+                            isDrawing = false,
+                            drawStart = null,
+                            drawCurrent = null,
+                            hasOverlap = false
+                        )
+                        return
+                    }
+
+                    addBed(bed)
+
                     // Automatisch auswählen und zu SELECT wechseln
                     _state.value = _state.value.copy(
                         selectedBedId = bed.id,
@@ -291,19 +383,53 @@ class GardenEditorViewModel @Inject constructor(
     private fun moveBed(currentPosM: Offset) {
         val bed = _state.value.selectedBed ?: return
         val start = _state.value.dragStart ?: return
-        
+
         val deltaX = currentPosM.x - start.x
         val deltaY = currentPosM.y - start.y
-        
-        val newX = clampX(bed.x + deltaX, bed.width)
-        val newY = clampY(bed.y + deltaY, bed.height)
-        
-        val movedBed = bed.copy(x = newX, y = newY)
-        
-        _state.value = _state.value.copy(
-            beds = _state.value.beds.map { if (it.id == bed.id) movedBed else it },
-            dragStart = currentPosM
+
+        var newX = clampX(bed.x + deltaX, bed.width)
+        var newY = clampY(bed.y + deltaY, bed.height)
+
+        // Apply snapping
+        val candidateBounds = Rect(newX, newY, newX + bed.width, newY + bed.height)
+        val otherBeds = _state.value.beds.filter { it.id != bed.id }
+        val snapResult = SnapHelper.findSnapPoints(
+            bedBounds = candidateBounds,
+            otherBeds = otherBeds,
+            gardenWidth = _state.value.gardenWidthM,
+            gardenHeight = _state.value.gardenHeightM,
+            excludeBedId = bed.id
         )
+
+        // Apply snapped positions
+        if (snapResult.snappedX != null) {
+            newX = clampX(snapResult.snappedX, bed.width)
+        }
+        if (snapResult.snappedY != null) {
+            newY = clampY(snapResult.snappedY, bed.height)
+        }
+
+        val movedBed = bed.copy(x = newX, y = newY)
+
+        // Check for overlap with other beds
+        val hasOverlap = otherBeds.hasOverlap(movedBed)
+
+        if (!hasOverlap) {
+            _state.value = _state.value.copy(
+                beds = _state.value.beds.map { if (it.id == bed.id) movedBed else it },
+                dragStart = currentPosM,
+                hasOverlap = false,
+                snapLinesX = snapResult.snapLinesX,
+                snapLinesY = snapResult.snapLinesY
+            )
+        } else {
+            // Show overlap indicator but don't move
+            _state.value = _state.value.copy(
+                hasOverlap = true,
+                snapLinesX = emptyList(),
+                snapLinesY = emptyList()
+            )
+        }
     }
 
     private fun finishDrag() {
@@ -311,19 +437,22 @@ class GardenEditorViewModel @Inject constructor(
             // Nur persistieren, Undo wurde beim Start vorbereitet
             persistBed(bed)
         }
-        
+
         _state.value = _state.value.copy(
             isDragging = false,
-            dragStart = null
+            dragStart = null,
+            hasOverlap = false,
+            snapLinesX = emptyList(),
+            snapLinesY = emptyList()
         )
     }
 
     private fun resizeBed(currentPosM: Offset) {
         val bed = _state.value.selectedBed ?: return
         val corner = _state.value.activeCorner ?: return
-        
+
         val minSize = 0.2f  // Mindestens 20cm
-        
+
         val newBounds = when (corner) {
             ResizeCorner.TOP_LEFT -> Rect(
                 left = currentPosM.x.coerceIn(0f, bed.bounds.right - minSize),
@@ -350,26 +479,39 @@ class GardenEditorViewModel @Inject constructor(
                 bottom = currentPosM.y.coerceIn(bed.bounds.top + minSize, _state.value.gardenHeightM)
             )
         }
-        
+
         val resizedBed = bed.copy(
             x = newBounds.left,
             y = newBounds.top,
             width = newBounds.width,
             height = newBounds.height
         )
-        
-        _state.value = _state.value.copy(
-            beds = _state.value.beds.map { if (it.id == bed.id) resizedBed else it }
-        )
+
+        // Check for overlap with other beds
+        val otherBeds = _state.value.beds.filter { it.id != bed.id }
+        val hasOverlap = otherBeds.hasOverlap(resizedBed)
+
+        if (!hasOverlap) {
+            _state.value = _state.value.copy(
+                beds = _state.value.beds.map { if (it.id == bed.id) resizedBed else it },
+                hasOverlap = false
+            )
+        } else {
+            // Show overlap indicator but don't resize
+            _state.value = _state.value.copy(hasOverlap = true)
+        }
     }
 
     private fun finishResize() {
         _state.value.selectedBed?.let { persistBed(it) }
-        
+
         _state.value = _state.value.copy(
             isResizing = false,
             activeCorner = null,
-            dragStart = null
+            dragStart = null,
+            hasOverlap = false,
+            snapLinesX = emptyList(),
+            snapLinesY = emptyList()
         )
     }
 
@@ -382,13 +524,78 @@ class GardenEditorViewModel @Inject constructor(
 
     fun deleteBed(bedId: String) {
         val bed = _state.value.beds.find { it.id == bedId } ?: return
+        val bedName = bed.displayName()
         executeAction(EditorAction.DeleteBed(bed))
-        
+
         viewModelScope.launch {
             deleteBedUseCase(bedId)
         }
-        
+
         _state.value = _state.value.copy(selectedBedId = null)
+        showMessage("$bedName gelöscht")
+    }
+
+    fun duplicateBed(bedId: String) {
+        val bed = _state.value.beds.find { it.id == bedId } ?: return
+
+        // Calculate offset - try to place to the right first, then down
+        val offsetX = 0.2f  // 20cm offset
+        val offsetY = 0.2f
+
+        // Try different positions to find non-overlapping spot
+        val positions = listOf(
+            // Right of original
+            Pair(bed.x + bed.width + offsetX, bed.y),
+            // Below original
+            Pair(bed.x, bed.y + bed.height + offsetY),
+            // Diagonal
+            Pair(bed.x + bed.width + offsetX, bed.y + bed.height + offsetY),
+            // Left if space
+            Pair(bed.x - bed.width - offsetX, bed.y),
+            // Above if space
+            Pair(bed.x, bed.y - bed.height - offsetY)
+        )
+
+        var duplicatedBed: EditorBed? = null
+
+        for ((tryX, tryY) in positions) {
+            val clampedX = clampX(tryX, bed.width)
+            val clampedY = clampY(tryY, bed.height)
+
+            val candidate = EditorBed(
+                name = if (bed.name.isEmpty()) "" else "${bed.name} (Kopie)",
+                x = clampedX,
+                y = clampedY,
+                width = bed.width,
+                height = bed.height,
+                colorHex = bed.colorHex,
+                plantIds = emptyList()
+            )
+
+            if (!_state.value.beds.hasOverlap(candidate)) {
+                duplicatedBed = candidate
+                break
+            }
+        }
+
+        if (duplicatedBed == null) {
+            // No valid position found - still create but it might overlap
+            duplicatedBed = EditorBed(
+                name = if (bed.name.isEmpty()) "" else "${bed.name} (Kopie)",
+                x = clampX(bed.x + bed.width + offsetX, bed.width),
+                y = clampY(bed.y, bed.height),
+                width = bed.width,
+                height = bed.height,
+                colorHex = bed.colorHex,
+                plantIds = emptyList()
+            )
+        }
+
+        addBed(duplicatedBed)
+
+        // Select the new bed
+        _state.value = _state.value.copy(selectedBedId = duplicatedBed.id)
+        showMessage("Beet kopiert")
     }
 
     fun updateBedName(name: String) {
@@ -487,6 +694,14 @@ class GardenEditorViewModel @Inject constructor(
         updateUndoState()
     }
 
+    fun clearMessage() {
+        _state.value = _state.value.copy(userMessage = null)
+    }
+
+    private fun showMessage(message: String) {
+        _state.value = _state.value.copy(userMessage = message)
+    }
+
     private fun updateUndoState() {
         _state.value = _state.value.copy(
             canUndo = undoStack.isNotEmpty(),
@@ -524,11 +739,15 @@ class GardenEditorViewModel @Inject constructor(
         return kotlin.math.sqrt(dx * dx + dy * dy)
     }
 
-    private fun clampX(x: Float, width: Float): Float =
-        x.coerceIn(0f, _state.value.gardenWidthM - width)
+    private fun clampX(x: Float, width: Float): Float {
+        val maxX = (_state.value.gardenWidthM - width).coerceAtLeast(0f)
+        return x.coerceIn(0f, maxX)
+    }
 
-    private fun clampY(y: Float, height: Float): Float =
-        y.coerceIn(0f, _state.value.gardenHeightM - height)
+    private fun clampY(y: Float, height: Float): Float {
+        val maxY = (_state.value.gardenHeightM - height).coerceAtLeast(0f)
+        return y.coerceIn(0f, maxY)
+    }
 
     private fun persistBed(bed: EditorBed) {
         viewModelScope.launch {

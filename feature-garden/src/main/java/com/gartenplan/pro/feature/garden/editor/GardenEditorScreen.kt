@@ -1,11 +1,12 @@
 package com.gartenplan.pro.feature.garden.editor
 
+import android.view.HapticFeedbackConstants
 import androidx.compose.animation.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
@@ -25,8 +26,13 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.*
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.positionChange
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.text.*
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.IntSize
@@ -34,6 +40,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import kotlin.math.abs
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -48,6 +55,7 @@ fun GardenEditorScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
+    val snackbarHostState = remember { SnackbarHostState() }
 
     // Laden
     LaunchedEffect(gardenId, gardenName) {
@@ -66,7 +74,19 @@ fun GardenEditorScreen(
         }
     }
 
+    // Show user messages as snackbar
+    LaunchedEffect(state.userMessage) {
+        state.userMessage?.let { message ->
+            snackbarHostState.showSnackbar(
+                message = message,
+                duration = SnackbarDuration.Short
+            )
+            viewModel.clearMessage()
+        }
+    }
+
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             EditorTopBar(
                 gardenName = state.gardenName,
@@ -129,7 +149,8 @@ fun GardenEditorScreen(
                     SelectedBedInfo(
                         bed = bed,
                         onOpenDetail = { onNavigateToBedDetail(bed.id) },
-                        onDelete = { viewModel.deleteBed(bed.id) }
+                        onDelete = { viewModel.deleteBed(bed.id) },
+                        onDuplicate = { viewModel.duplicateBed(bed.id) }
                     )
                 }
             }
@@ -150,15 +171,25 @@ fun GardenEditorScreen(
             }
 
             // Zeichnungs-Preview Info
-            if (state.isDrawing && state.drawPreviewRect != null) {
-                val rect = state.drawPreviewRect!!
-                DrawingInfo(
-                    width = rect.width,
-                    height = rect.height,
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 100.dp)
-                )
+            if (state.isDrawing) {
+                if (state.tool == BuildTool.ADD_CIRCLE_BED && state.drawPreviewCircle != null) {
+                    val (_, _, radius) = state.drawPreviewCircle!!
+                    CircleDrawingInfo(
+                        diameter = radius * 2,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 100.dp)
+                    )
+                } else if (state.drawPreviewRect != null) {
+                    val rect = state.drawPreviewRect!!
+                    DrawingInfo(
+                        width = rect.width,
+                        height = rect.height,
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .padding(bottom = 100.dp)
+                    )
+                }
             }
         }
     }
@@ -248,11 +279,15 @@ private fun ModeToggle(
     modifier: Modifier = Modifier
 ) {
     val isBuild = mode == EditorMode.BUILD
-    
+    val haptic = LocalHapticFeedback.current
+
     FloatingActionButton(
-        onClick = onToggle,
+        onClick = {
+            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+            onToggle()
+        },
         modifier = modifier,
-        containerColor = if (isBuild) MaterialTheme.colorScheme.primary 
+        containerColor = if (isBuild) MaterialTheme.colorScheme.primary
                          else MaterialTheme.colorScheme.secondaryContainer,
         contentColor = if (isBuild) MaterialTheme.colorScheme.onPrimary
                        else MaterialTheme.colorScheme.onSecondaryContainer
@@ -270,7 +305,8 @@ private fun ModeToggle(
 private fun SelectedBedInfo(
     bed: EditorBed,
     onOpenDetail: () -> Unit,
-    onDelete: () -> Unit
+    onDelete: () -> Unit,
+    onDuplicate: () -> Unit = {}
 ) {
     Surface(
         shape = RoundedCornerShape(12.dp),
@@ -295,16 +331,22 @@ private fun SelectedBedInfo(
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.primary
             )
-            
+
             Spacer(Modifier.height(8.dp))
-            
-            Row {
+
+            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
                 TextButton(onClick = onDelete) {
                     Icon(Icons.Default.Delete, null, Modifier.size(16.dp))
                     Spacer(Modifier.width(4.dp))
                     Text("Löschen")
                 }
-                
+
+                TextButton(onClick = onDuplicate) {
+                    Icon(Icons.Default.ContentCopy, null, Modifier.size(16.dp))
+                    Spacer(Modifier.width(4.dp))
+                    Text("Kopieren")
+                }
+
                 Button(onClick = onOpenDetail) {
                     Text("Planen")
                 }
@@ -340,14 +382,21 @@ private fun BuildToolbar(
                 isActive = activeTool == BuildTool.SELECT,
                 onClick = { onToolSelected(BuildTool.SELECT) }
             )
-            
+
             ToolButton(
                 icon = Icons.Default.CropSquare,
                 label = "Beet",
                 isActive = activeTool == BuildTool.ADD_BED,
                 onClick = { onToolSelected(BuildTool.ADD_BED) }
             )
-            
+
+            ToolButton(
+                icon = Icons.Default.Circle,
+                label = "Rundbeet",
+                isActive = activeTool == BuildTool.ADD_CIRCLE_BED,
+                onClick = { onToolSelected(BuildTool.ADD_CIRCLE_BED) }
+            )
+
             ToolButton(
                 icon = Icons.Default.LinearScale,
                 label = "Weg",
@@ -365,9 +414,10 @@ private fun ToolButton(
     isActive: Boolean,
     onClick: () -> Unit
 ) {
-    val color = if (isActive) MaterialTheme.colorScheme.primary 
+    val color = if (isActive) MaterialTheme.colorScheme.primary
                 else MaterialTheme.colorScheme.onSurfaceVariant
-    
+    val haptic = LocalHapticFeedback.current
+
     Column(
         horizontalAlignment = Alignment.CenterHorizontally,
         modifier = Modifier
@@ -375,7 +425,10 @@ private fun ToolButton(
             .background(if (isActive) color.copy(alpha = 0.1f) else Color.Transparent)
             .padding(8.dp)
     ) {
-        IconButton(onClick = onClick) {
+        IconButton(onClick = {
+            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+            onClick()
+        }) {
             Icon(icon, label, tint = color)
         }
         Text(
@@ -401,6 +454,27 @@ private fun DrawingInfo(
     ) {
         Text(
             text = "%.1f × %.1f m  (%.1f m²)".format(width, height, width * height),
+            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
+            style = MaterialTheme.typography.labelLarge,
+            color = MaterialTheme.colorScheme.inverseOnSurface
+        )
+    }
+}
+
+@Composable
+private fun CircleDrawingInfo(
+    diameter: Float,
+    modifier: Modifier = Modifier
+) {
+    val radius = diameter / 2
+    val area = kotlin.math.PI.toFloat() * radius * radius
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(8.dp),
+        color = MaterialTheme.colorScheme.inverseSurface
+    ) {
+        Text(
+            text = "⌀ %.1f m  (%.1f m²)".format(diameter, area),
             modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
             style = MaterialTheme.typography.labelLarge,
             color = MaterialTheme.colorScheme.inverseOnSurface
@@ -441,45 +515,135 @@ private fun EditorCanvas(
             }
             .then(
                 when (state.mode) {
+                    // ========== BEWEGUNGSMODUS ==========
+                    // 1 Finger = Pan, 2 Finger = Zoom, Tap = Highlight
                     EditorMode.BEWEGUNG -> Modifier
-                        // 1 Finger = Pan
                         .pointerInput(Unit) {
-                            detectDragGestures { change, dragAmount ->
-                                change.consume()
-                                onNavPan(dragAmount)
-                            }
+                            detectTransformGestures(
+                                onGesture = { _, pan, zoom, _ ->
+                                    // Pan mit 1 oder 2 Fingern
+                                    if (pan != Offset.Zero) {
+                                        onNavPan(pan)
+                                    }
+                                    // Zoom mit 2 Fingern
+                                    if (zoom != 1f) {
+                                        onNavZoom(zoom)
+                                    }
+                                }
+                            )
                         }
-                        // 2 Finger = Zoom
                         .pointerInput(Unit) {
-                            detectTransformGestures { _, _, zoom, _ ->
-                                onNavZoom(zoom)
-                            }
-                        }
-                        // Tap = Highlight
-                        .pointerInput(Unit) {
-                            detectTapGestures { offset ->
-                                onNavTap(offset)
+                            // Tap Detection für Highlight
+                            awaitEachGesture {
+                                val down = awaitFirstDown(requireUnconsumed = false)
+                                val downTime = System.currentTimeMillis()
+                                val downPos = down.position
+                                
+                                // Warten auf Up
+                                var event: androidx.compose.ui.input.pointer.PointerEvent
+                                do {
+                                    event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull()
+                                } while (event.changes.any { it.pressed })
+                                
+                                val upTime = System.currentTimeMillis()
+
+                                val moved = event.changes.firstOrNull()?.let {
+                                    abs(it.position.x - downPos.x) > 20 ||
+                                    abs(it.position.y - downPos.y) > 20
+                                } ?: false
+
+                                // Tap = kurz und nicht bewegt
+                                if (upTime - downTime < 300 && !moved) {
+                                    onNavTap(downPos)
+                                }
                             }
                         }
                     
+                    // ========== BUILD-MODUS ==========
+                    // 1 Finger = Zeichnen/Drag, 2 Finger = Pan/Zoom
                     EditorMode.BUILD -> Modifier
-                        // Zeichnen / Drag / Resize
-                        .pointerInput(state.tool, state.isDrawing, state.isDragging, state.isResizing) {
-                            detectDragGestures(
-                                onDragStart = { onBuildStart(it) },
-                                onDrag = { change, _ ->
-                                    change.consume()
-                                    onBuildMove(change.position)
-                                },
-                                onDragEnd = { onBuildEnd() },
-                                onDragCancel = { onBuildEnd() }
-                            )
-                        }
-                        // 2 Finger Zoom/Pan (nur wenn nichts aktiv)
-                        .pointerInput(state.isDrawing, state.isDragging, state.isResizing) {
-                            if (!state.isDrawing && !state.isDragging && !state.isResizing) {
-                                detectTransformGestures { _, pan, zoom, _ ->
-                                    onBuildPanZoom(pan, zoom)
+                        .pointerInput(state.tool) {
+                            awaitEachGesture {
+                                val firstDown = awaitFirstDown(requireUnconsumed = false)
+                                var fingerCount = 1
+                                var lastPosition = firstDown.position
+                                var isDragging = false
+                                var isTwoFingerGesture = false
+                                
+                                // Kurz warten um zu sehen ob zweiter Finger kommt
+                                val startTime = System.currentTimeMillis()
+                                
+                                // Auf weitere Events warten
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val changes = event.changes.filter { it.pressed }
+                                    
+                                    if (changes.isEmpty()) {
+                                        // Alle Finger gehoben
+                                        if (isDragging && !isTwoFingerGesture) {
+                                            onBuildEnd()
+                                        }
+                                        break
+                                    }
+                                    
+                                    fingerCount = changes.size
+                                    
+                                    if (fingerCount >= 2) {
+                                        // ZWEI FINGER = Pan/Zoom
+                                        isTwoFingerGesture = true
+                                        
+                                        if (isDragging) {
+                                            // Zeichnen abbrechen
+                                            onBuildEnd()
+                                            isDragging = false
+                                        }
+                                        
+                                        // Pan berechnen (Durchschnitt der Bewegungen)
+                                        val avgPan = changes.map { it.positionChange() }
+                                            .reduce { acc, offset -> acc + offset } / fingerCount.toFloat()
+                                        
+                                        if (avgPan != Offset.Zero) {
+                                            onBuildPanZoom(avgPan, 1f)
+                                        }
+                                        
+                                        // Zoom berechnen (Abstand zwischen Fingern)
+                                        if (changes.size >= 2) {
+                                            val pos1 = changes[0].position
+                                            val pos2 = changes[1].position
+                                            val prevPos1 = changes[0].previousPosition
+                                            val prevPos2 = changes[1].previousPosition
+                                            
+                                            val currDist = (pos1 - pos2).getDistance()
+                                            val prevDist = (prevPos1 - prevPos2).getDistance()
+                                            
+                                            if (prevDist > 0) {
+                                                val zoom = currDist / prevDist
+                                                if (zoom != 1f && zoom > 0.5f && zoom < 2f) {
+                                                    onBuildPanZoom(Offset.Zero, zoom)
+                                                }
+                                            }
+                                        }
+                                        
+                                        changes.forEach { it.consume() }
+                                    } else {
+                                        // EIN FINGER = Zeichnen/Drag
+                                        if (!isTwoFingerGesture) {
+                                            val currentPos = changes.first().position
+                                            
+                                            if (!isDragging) {
+                                                // Zeichnen starten
+                                                onBuildStart(currentPos)
+                                                isDragging = true
+                                            } else {
+                                                // Zeichnen fortsetzen
+                                                onBuildMove(currentPos)
+                                            }
+                                            
+                                            lastPosition = currentPos
+                                            changes.forEach { it.consume() }
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -513,9 +677,24 @@ private fun EditorCanvas(
                 }
                 
                 // Zeichnungs-Preview
-                state.drawPreviewRect?.let { rect ->
-                    drawPreviewRect(rect, state.tool, pixelsPerMeter)
+                if (state.tool == BuildTool.ADD_CIRCLE_BED) {
+                    state.drawPreviewCircle?.let { (centerX, centerY, radius) ->
+                        drawPreviewCircle(centerX, centerY, radius, pixelsPerMeter, state.hasOverlap)
+                    }
+                } else {
+                    state.drawPreviewRect?.let { rect ->
+                        drawPreviewRect(rect, state.tool, pixelsPerMeter, state.hasOverlap)
+                    }
                 }
+
+                // Draw snap lines
+                drawSnapLines(
+                    snapLinesX = state.snapLinesX,
+                    snapLinesY = state.snapLinesY,
+                    gardenWidth = state.gardenWidthM,
+                    gardenHeight = state.gardenHeightM,
+                    ppm = pixelsPerMeter
+                )
             }
         }
         
@@ -591,56 +770,106 @@ private fun DrawScope.drawBed(
     val top = bed.y * ppm
     val width = bed.width * ppm
     val height = bed.height * ppm
-    
+
     val color = BedColors.parse(bed.colorHex)
-    
-    // Schatten für ausgewählte
-    if (isSelected) {
+    val alpha = if (isSelected) 0.9f else if (isHighlighted) 0.85f else 0.75f
+    val strokeWidth = if (isSelected) 4f else 2f
+    val strokeColor = if (isSelected) Color.White else if (isHighlighted) Color.White.copy(alpha = 0.7f) else color
+
+    if (bed.isCircle) {
+        // Draw circular bed
+        val centerX = left + width / 2
+        val centerY = top + height / 2
+        val radius = width / 2
+
+        // Shadow for selected
+        if (isSelected) {
+            drawCircle(
+                color = Color.Black.copy(alpha = 0.2f),
+                radius = radius,
+                center = Offset(centerX + 4, centerY + 4)
+            )
+        }
+
+        // Fill
+        drawCircle(
+            color = color.copy(alpha = alpha),
+            radius = radius,
+            center = Offset(centerX, centerY)
+        )
+
+        // Border
+        drawCircle(
+            color = strokeColor,
+            radius = radius,
+            center = Offset(centerX, centerY),
+            style = Stroke(width = strokeWidth)
+        )
+
+        // Resize handles for selected (4 points on circle)
+        if (isSelected) {
+            val handleRadius = 10f
+            val handlePositions = listOf(
+                Offset(centerX, centerY - radius),  // Top
+                Offset(centerX + radius, centerY),  // Right
+                Offset(centerX, centerY + radius),  // Bottom
+                Offset(centerX - radius, centerY)   // Left
+            )
+            handlePositions.forEach { pos ->
+                drawCircle(Color.White, handleRadius, pos)
+                drawCircle(color, handleRadius - 2, pos)
+            }
+        }
+    } else {
+        // Draw rectangular bed
+        // Shadow for selected
+        if (isSelected) {
+            drawRoundRect(
+                color = Color.Black.copy(alpha = 0.2f),
+                topLeft = Offset(left + 4, top + 4),
+                size = Size(width, height),
+                cornerRadius = CornerRadius(8f)
+            )
+        }
+
+        // Fill
         drawRoundRect(
-            color = Color.Black.copy(alpha = 0.2f),
-            topLeft = Offset(left + 4, top + 4),
+            color = color.copy(alpha = alpha),
+            topLeft = Offset(left, top),
             size = Size(width, height),
             cornerRadius = CornerRadius(8f)
         )
-    }
-    
-    // Fläche
-    drawRoundRect(
-        color = color.copy(alpha = if (isSelected) 0.9f else if (isHighlighted) 0.85f else 0.75f),
-        topLeft = Offset(left, top),
-        size = Size(width, height),
-        cornerRadius = CornerRadius(8f)
-    )
-    
-    // Rahmen
-    drawRoundRect(
-        color = if (isSelected) Color.White else if (isHighlighted) Color.White.copy(alpha = 0.7f) else color,
-        topLeft = Offset(left, top),
-        size = Size(width, height),
-        cornerRadius = CornerRadius(8f),
-        style = Stroke(width = if (isSelected) 4f else 2f)
-    )
-    
-    // Resize-Handles für ausgewählte
-    if (isSelected) {
-        val handleRadius = 10f
-        val corners = listOf(
-            Offset(left, top),
-            Offset(left + width, top),
-            Offset(left, top + height),
-            Offset(left + width, top + height)
+
+        // Border
+        drawRoundRect(
+            color = strokeColor,
+            topLeft = Offset(left, top),
+            size = Size(width, height),
+            cornerRadius = CornerRadius(8f),
+            style = Stroke(width = strokeWidth)
         )
-        corners.forEach { corner ->
-            drawCircle(Color.White, handleRadius, corner)
-            drawCircle(color, handleRadius - 2, corner)
+
+        // Resize handles for selected
+        if (isSelected) {
+            val handleRadius = 10f
+            val corners = listOf(
+                Offset(left, top),
+                Offset(left + width, top),
+                Offset(left, top + height),
+                Offset(left + width, top + height)
+            )
+            corners.forEach { corner ->
+                drawCircle(Color.White, handleRadius, corner)
+                drawCircle(color, handleRadius - 2, corner)
+            }
         }
     }
-    
-    // Label
+
+    // Label (for both shapes)
     if (width > 60 && height > 40) {
         val label = bed.displayName()
         val sizeLabel = bed.areaText()
-        
+
         val labelStyle = TextStyle(
             color = Color.White,
             fontSize = 14.sp,
@@ -652,13 +881,13 @@ private fun DrawScope.drawBed(
             fontSize = 11.sp,
             shadow = Shadow(Color.Black.copy(alpha = 0.5f), Offset(1f, 1f), 2f)
         )
-        
+
         val labelResult = textMeasurer.measure(label, labelStyle)
         val sizeResult = textMeasurer.measure(sizeLabel, sizeStyle)
-        
+
         val centerX = left + width / 2
         val centerY = top + height / 2
-        
+
         drawText(labelResult, topLeft = Offset(
             centerX - labelResult.size.width / 2,
             centerY - labelResult.size.height
@@ -694,23 +923,99 @@ private fun DrawScope.drawPath(path: EditorPath, ppm: Float) {
     )
 }
 
-private fun DrawScope.drawPreviewRect(rect: androidx.compose.ui.geometry.Rect, tool: BuildTool, ppm: Float) {
+private fun DrawScope.drawSnapLines(
+    snapLinesX: List<Float>,
+    snapLinesY: List<Float>,
+    gardenWidth: Float,
+    gardenHeight: Float,
+    ppm: Float
+) {
+    val snapColor = Color(0xFF00BCD4)  // Cyan color for snap lines
+
+    // Draw vertical snap lines
+    snapLinesX.forEach { x ->
+        val xPx = x * ppm
+        drawLine(
+            color = snapColor,
+            start = Offset(xPx, 0f),
+            end = Offset(xPx, gardenHeight * ppm),
+            strokeWidth = 2f,
+            pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 4f))
+        )
+    }
+
+    // Draw horizontal snap lines
+    snapLinesY.forEach { y ->
+        val yPx = y * ppm
+        drawLine(
+            color = snapColor,
+            start = Offset(0f, yPx),
+            end = Offset(gardenWidth * ppm, yPx),
+            strokeWidth = 2f,
+            pathEffect = PathEffect.dashPathEffect(floatArrayOf(8f, 4f))
+        )
+    }
+}
+
+private fun DrawScope.drawPreviewCircle(
+    centerX: Float,
+    centerY: Float,
+    radius: Float,
+    ppm: Float,
+    hasOverlap: Boolean = false
+) {
+    val centerPx = Offset(centerX * ppm, centerY * ppm)
+    val radiusPx = radius * ppm
+
+    // Circle preview - red if overlapping, green if valid
+    val previewColor = if (hasOverlap) Color(0xFFF44336) else Color(0xFF4CAF50)
+
+    drawCircle(
+        color = previewColor.copy(alpha = 0.3f),
+        radius = radiusPx,
+        center = centerPx
+    )
+    drawCircle(
+        color = previewColor,
+        radius = radiusPx,
+        center = centerPx,
+        style = Stroke(
+            width = 3f,
+            pathEffect = PathEffect.dashPathEffect(floatArrayOf(15f, 10f))
+        )
+    )
+
+    // Draw center point
+    drawCircle(
+        color = previewColor,
+        radius = 6f,
+        center = centerPx
+    )
+}
+
+private fun DrawScope.drawPreviewRect(
+    rect: androidx.compose.ui.geometry.Rect,
+    tool: BuildTool,
+    ppm: Float,
+    hasOverlap: Boolean = false
+) {
     val left = rect.left * ppm
     val top = rect.top * ppm
     val width = rect.width * ppm
     val height = rect.height * ppm
-    
+
     when (tool) {
         BuildTool.ADD_BED -> {
-            // Beet-Preview
+            // Beet-Preview - red if overlapping, green if valid
+            val previewColor = if (hasOverlap) Color(0xFFF44336) else Color(0xFF4CAF50)
             drawRoundRect(
-                color = Color(0xFF4CAF50).copy(alpha = 0.3f),
+                color = previewColor.copy(alpha = 0.3f),
                 topLeft = Offset(left, top),
                 size = Size(width, height),
                 cornerRadius = CornerRadius(8f)
             )
             drawRoundRect(
-                color = Color(0xFF4CAF50),
+                color = previewColor,
                 topLeft = Offset(left, top),
                 size = Size(width, height),
                 cornerRadius = CornerRadius(8f),
@@ -721,12 +1026,14 @@ private fun DrawScope.drawPreviewRect(rect: androidx.compose.ui.geometry.Rect, t
             )
         }
         BuildTool.ADD_PATH -> {
-            // Weg-Preview (Linie)
+            // Weg-Preview (Linie) - constant 40cm width
+            val pathWidthM = 0.4f  // 40cm constant
+            val pathWidthPx = pathWidthM * ppm
             drawLine(
                 color = PathColor.default.copy(alpha = 0.5f),
                 start = Offset(left, top),
                 end = Offset(left + width, top + height),
-                strokeWidth = 0.4f * ppm,
+                strokeWidth = pathWidthPx,
                 cap = StrokeCap.Round,
                 pathEffect = PathEffect.dashPathEffect(floatArrayOf(10f, 5f))
             )
