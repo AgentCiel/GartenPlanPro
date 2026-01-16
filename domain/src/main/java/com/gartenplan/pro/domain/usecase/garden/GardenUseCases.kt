@@ -30,6 +30,17 @@ class ObserveGardenUseCase @Inject constructor(
 }
 
 /**
+ * Get a single bed by ID
+ */
+class GetBedByIdUseCase @Inject constructor(
+    private val repository: GardenRepository
+) {
+    suspend operator fun invoke(bedId: String): Bed? {
+        return repository.getBedById(bedId)
+    }
+}
+
+/**
  * Get garden count (for free version limit check)
  */
 class GetGardenCountUseCase @Inject constructor(

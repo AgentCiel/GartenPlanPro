@@ -51,7 +51,7 @@ class GardenListViewModel @Inject constructor(
             try {
                 deleteGardenUseCase(gardenId)
             } catch (e: Exception) {
-                // Error handled by Flow refresh
+                // Error wird durch Flow-Refresh angezeigt
             }
         }
     }

@@ -6,7 +6,7 @@ import androidx.compose.material.icons.outlined.*
 import androidx.compose.ui.graphics.vector.ImageVector
 
 /**
- * Navigation destinations for bottom navigation
+ * Bottom Navigation Destinations
  */
 sealed class Screen(
     val route: String,
@@ -48,37 +48,33 @@ sealed class Screen(
 }
 
 /**
- * Sub-routes for navigation within features
+ * All Routes
  */
 object Routes {
-    // Garden - Canvas-based
+    // Garden
     const val GARDEN_LIST = "garden"
-    const val GARDEN_SETUP = "garden/setup"
-    const val GARDEN_CANVAS = "garden/canvas/{gardenId}"
-    const val GARDEN_CANVAS_NEW = "garden/canvas/new?name={name}&width={width}&height={height}"
+    const val GARDEN_CREATE = "garden/create"
+    const val GARDEN_EDITOR = "garden/editor/{gardenId}"
+    const val GARDEN_EDITOR_NEW = "garden/editor/new?name={name}&width={width}&height={height}"
+    const val BED_DETAIL = "garden/bed/{bedId}"
     
     // Plants
     const val PLANT_LIST = "plants"
     const val PLANT_DETAIL = "plant/{plantId}"
-    const val PLANT_SEARCH = "plants/search"
     
     // Calendar
-    const val CALENDAR_OVERVIEW = "calendar"
+    const val CALENDAR = "calendar"
     const val TASK_DETAIL = "task/{taskId}"
-    const val TASK_CREATE = "task/create"
     
     // Compost
     const val COMPOST_LIST = "compost"
     const val COMPOST_DETAIL = "compost/{compostId}"
-    const val COMPOST_CREATE = "compost/create"
     
-    // Settings
-    const val SETTINGS = "settings"
-    
-    // Helper functions
-    fun gardenCanvas(gardenId: String) = "garden/canvas/$gardenId"
-    fun gardenCanvasNew(name: String, widthCm: Int, heightCm: Int) = 
-        "garden/canvas/new?name=$name&width=$widthCm&height=$heightCm"
+    // Helper Functions
+    fun gardenEditor(gardenId: String) = "garden/editor/$gardenId"
+    fun gardenEditorNew(name: String, widthM: Float, heightM: Float) = 
+        "garden/editor/new?name=$name&width=$widthM&height=$heightM"
+    fun bedDetail(bedId: String) = "garden/bed/$bedId"
     fun plantDetail(plantId: String) = "plant/$plantId"
     fun taskDetail(taskId: String) = "task/$taskId"
     fun compostDetail(compostId: String) = "compost/$compostId"
