@@ -23,18 +23,18 @@ import androidx.core.view.WindowCompat
 
 // ==================== COLORS ====================
 
-// Primary Green (Nature/Garden)
+// Primary Green (Nature/Garden) - KONTRASTREICHE Farben
 val Green10 = Color(0xFF002200)
 val Green20 = Color(0xFF003D00)
-val Green30 = Color(0xFF005800)
-val Green40 = Color(0xFF007400)
-val Green50 = Color(0xFF009100)
-val Green60 = Color(0xFF2DB552)
-val Green70 = Color(0xFF5DD17A)
-val Green80 = Color(0xFF8AEE9E)
-val Green90 = Color(0xFFB8FFC5)
-val Green95 = Color(0xFFDCFFE1)
-val Green99 = Color(0xFFF5FFF6)
+val Green30 = Color(0xFF1B5E20)  // Dunkler für Container
+val Green40 = Color(0xFF2E7D32)  // Haupt-Primärfarbe - hoher Kontrast mit Weiß!
+val Green50 = Color(0xFF388E3C)  // Etwas dunkler als vorher
+val Green60 = Color(0xFF43A047)
+val Green70 = Color(0xFF66BB6A)
+val Green80 = Color(0xFF81C784)  // Für Dark Mode Primary
+val Green90 = Color(0xFFA5D6A7)
+val Green95 = Color(0xFFC8E6C9)
+val Green99 = Color(0xFFE8F5E9)
 
 // Secondary Brown (Earth/Soil)
 val Brown10 = Color(0xFF1A1000)
@@ -83,10 +83,10 @@ val StatusFailed = Color(0xFFF44336)
 // ==================== COLOR SCHEMES ====================
 
 private val LightColorScheme = lightColorScheme(
-    primary = Green50,
-    onPrimary = Color.White,
-    primaryContainer = Green90,
-    onPrimaryContainer = Green10,
+    primary = Green40,                    // Dunkles Grün - hoher Kontrast!
+    onPrimary = Color.White,              // Weiß auf Grün - gut lesbar
+    primaryContainer = Green95,           // Heller Container
+    onPrimaryContainer = Green30,         // Dunkel auf Hell
     secondary = Brown60,
     onSecondary = Color.White,
     secondaryContainer = Brown90,

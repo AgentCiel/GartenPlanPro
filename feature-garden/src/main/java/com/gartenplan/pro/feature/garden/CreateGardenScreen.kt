@@ -151,7 +151,7 @@ fun CreateGardenScreen(
 
             Spacer(Modifier.weight(1f))
 
-            // Erstellen Button
+            // Erstellen Button - mit hohem Kontrast für bessere Lesbarkeit
             Button(
                 onClick = {
                     val (width, height) = if (useCustomSize) {
@@ -165,7 +165,15 @@ fun CreateGardenScreen(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(56.dp),
-                shape = RoundedCornerShape(16.dp)
+                shape = RoundedCornerShape(16.dp),
+                colors = ButtonDefaults.buttonColors(
+                    // Dunkleres Grün für besseren Kontrast
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    // Disabled-State ebenfalls mit gutem Kontrast
+                    disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                    disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant
+                )
             ) {
                 Icon(Icons.Default.Check, null)
                 Spacer(Modifier.width(8.dp))

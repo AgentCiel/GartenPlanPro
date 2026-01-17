@@ -19,7 +19,8 @@ data class BedDetailState(
     val isEditingName: Boolean = false,
     val editedName: String = "",
     val availablePlants: List<Plant> = emptyList(),
-    val showPlantPicker: Boolean = false
+    val showPlantPicker: Boolean = false,
+    val userMessage: String? = null  // Für Snackbar-Nachrichten
 )
 
 @HiltViewModel
@@ -58,7 +59,7 @@ class BedDetailViewModel @Inject constructor(
 
     fun loadBed(bedId: String) {
         _state.value = _state.value.copy(isLoading = true)
-        
+
         viewModelScope.launch {
             try {
                 val bed = getBedByIdUseCase(bedId)
@@ -73,17 +74,27 @@ class BedDetailViewModel @Inject constructor(
                         colorHex = bed.colorHex,
                         plantIds = emptyList() // TODO: Aus DB laden wenn implementiert
                     )
-                    
+
                     _state.value = _state.value.copy(
                         bed = editorBed,
                         isLoading = false,
                         editedName = bed.name
                     )
-                    
+
                     loadBedPlants(editorBed.plantIds)
+                } else {
+                    // Beet nicht gefunden - Fehler anzeigen
+                    _state.value = _state.value.copy(
+                        isLoading = false,
+                        bed = null
+                    )
                 }
             } catch (e: Exception) {
-                _state.value = _state.value.copy(isLoading = false)
+                // Bei Fehler: Loading beenden und leeren State anzeigen
+                _state.value = _state.value.copy(
+                    isLoading = false,
+                    bed = null
+                )
             }
         }
     }
@@ -180,26 +191,44 @@ class BedDetailViewModel @Inject constructor(
 
     fun saveName() {
         val bed = _state.value.bed ?: return
-        val newName = _state.value.editedName
-        
+        val newName = _state.value.editedName.trim()
+
+        // Leere Namen erlauben, aber mindestens einen Leerstring
         val updatedBed = bed.copy(name = newName)
         _state.value = _state.value.copy(
             bed = updatedBed,
-            isEditingName = false
+            isEditingName = false,
+            editedName = newName
         )
-        
-        // Persistieren
+
+        // Persistieren mit Fehlerbehandlung
         viewModelScope.launch {
-            updateBedUseCase(com.gartenplan.pro.domain.model.Bed(
-                id = bed.id,
-                gardenId = "", // Wird vom UseCase ignoriert
-                name = newName,
-                positionX = (bed.x * 100).toInt(),
-                positionY = (bed.y * 100).toInt(),
-                widthCm = (bed.width * 100).toInt(),
-                heightCm = (bed.height * 100).toInt(),
-                colorHex = bed.colorHex
-            ))
+            try {
+                // Hole die gardenId aus der Datenbank
+                val existingBed = getBedByIdUseCase(bed.id)
+                val gardenId = existingBed?.gardenId ?: ""
+
+                if (gardenId.isEmpty()) {
+                    android.util.Log.w("BedDetail", "Cannot save name: gardenId unknown")
+                    return@launch
+                }
+
+                updateBedUseCase(com.gartenplan.pro.domain.model.Bed(
+                    id = bed.id,
+                    gardenId = gardenId,
+                    name = newName.ifEmpty { if (bed.isCircle) "Rundbeet" else "Beet" },
+                    positionX = (bed.x * 100).toInt(),
+                    positionY = (bed.y * 100).toInt(),
+                    widthCm = (bed.width * 100).toInt(),
+                    heightCm = (bed.height * 100).toInt(),
+                    shape = bed.shape,
+                    colorHex = bed.colorHex
+                ))
+                _state.value = _state.value.copy(userMessage = "Name gespeichert")
+            } catch (e: Exception) {
+                android.util.Log.e("BedDetail", "Failed to save name: ${e.message}", e)
+                _state.value = _state.value.copy(userMessage = "Fehler beim Speichern")
+            }
         }
     }
 
@@ -214,29 +243,37 @@ class BedDetailViewModel @Inject constructor(
 
     fun addPlant(plantId: String) {
         val plant = allPlants.find { it.id == plantId } ?: return
-        
+
         val bedPlant = BedPlant(
             id = plant.id,
             name = plant.nameDE,
             emoji = getPlantEmoji(plant.nameDE),
             quantity = 1
         )
-        
+
         _state.value = _state.value.copy(
-            plants = _state.value.plants + bedPlant
+            plants = _state.value.plants + bedPlant,
+            userMessage = "${plant.nameDE} hinzugefügt"
         )
-        
+
         updatePlantWarnings()
         // TODO: Persistieren wenn BedPlant-Tabelle existiert
     }
 
     fun removePlant(plantId: String) {
+        val plantName = _state.value.plants.find { it.id == plantId }?.name ?: "Pflanze"
+
         _state.value = _state.value.copy(
-            plants = _state.value.plants.filter { it.id != plantId }
+            plants = _state.value.plants.filter { it.id != plantId },
+            userMessage = "$plantName entfernt"
         )
-        
+
         updatePlantWarnings()
         // TODO: Persistieren
+    }
+
+    fun clearMessage() {
+        _state.value = _state.value.copy(userMessage = null)
     }
 
     private fun getPlantEmoji(name: String): String? {

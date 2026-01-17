@@ -139,6 +139,36 @@ class CreateBedUseCase @Inject constructor(
         )
         return repository.createBed(bed)
     }
+
+    /**
+     * Create a bed with a specific ID (for persistence from editor)
+     */
+    suspend fun createWithId(
+        id: String,
+        gardenId: String,
+        name: String,
+        positionX: Int,
+        positionY: Int,
+        widthCm: Int,
+        heightCm: Int,
+        shape: BedShape = BedShape.RECTANGLE,
+        isPath: Boolean = false,
+        colorHex: String = if (isPath) "#9E9E9E" else "#8D6E63"
+    ): String {
+        val bed = Bed(
+            id = id,  // Use the provided ID
+            gardenId = gardenId,
+            name = name,
+            positionX = positionX,
+            positionY = positionY,
+            widthCm = widthCm,
+            heightCm = heightCm,
+            shape = shape,
+            isPath = isPath,
+            colorHex = colorHex
+        )
+        return repository.createBed(bed)
+    }
 }
 
 /**

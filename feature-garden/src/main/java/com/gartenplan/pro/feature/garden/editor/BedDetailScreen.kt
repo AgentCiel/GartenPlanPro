@@ -41,9 +41,21 @@ fun BedDetailScreen(
     viewModel: BedDetailViewModel = hiltViewModel()
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
 
     LaunchedEffect(bedId) {
         viewModel.loadBed(bedId)
+    }
+
+    // Snackbar für Benutzer-Feedback anzeigen
+    LaunchedEffect(state.userMessage) {
+        state.userMessage?.let { message ->
+            snackbarHostState.showSnackbar(
+                message = message,
+                duration = SnackbarDuration.Short
+            )
+            viewModel.clearMessage()
+        }
     }
 
     // Plant Picker Dialog - now integrated directly here
@@ -59,6 +71,7 @@ fun BedDetailScreen(
     }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(state.bed?.displayName() ?: "Beet") },
@@ -82,11 +95,40 @@ fun BedDetailScreen(
             )
         }
     ) { padding ->
-        if (state.isLoading) {
-            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                CircularProgressIndicator()
+        when {
+            state.isLoading -> {
+                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                    CircularProgressIndicator()
+                }
             }
-        } else {
+            state.bed == null -> {
+                // Beet nicht gefunden - klare Info anzeigen
+                Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Icon(
+                            Icons.Default.Error,
+                            null,
+                            modifier = Modifier.size(64.dp),
+                            tint = MaterialTheme.colorScheme.error.copy(alpha = 0.6f)
+                        )
+                        Spacer(Modifier.height(16.dp))
+                        Text(
+                            "Beet nicht gefunden",
+                            style = MaterialTheme.typography.headlineSmall
+                        )
+                        Text(
+                            "Das Beet konnte nicht geladen werden.",
+                            style = MaterialTheme.typography.bodyMedium,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                        Spacer(Modifier.height(24.dp))
+                        Button(onClick = onNavigateBack) {
+                            Text("Zurück")
+                        }
+                    }
+                }
+            }
+            else -> {
             LazyColumn(
                 modifier = Modifier
                     .fillMaxSize()
@@ -137,6 +179,7 @@ fun BedDetailScreen(
                 
                 // Platz für FAB
                 item { Spacer(Modifier.height(80.dp)) }
+            }
             }
         }
     }

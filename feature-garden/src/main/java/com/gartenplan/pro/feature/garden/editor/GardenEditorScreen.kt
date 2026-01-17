@@ -66,11 +66,18 @@ fun GardenEditorScreen(
         }
     }
 
-    // Pixels per Meter berechnen
+    // Pixels per Meter berechnen und Garten beim ersten Laden zentrieren
+    var hasInitializedView by remember { mutableStateOf(false) }
     LaunchedEffect(canvasSize, state.gardenWidthM) {
         if (canvasSize.width > 0 && state.gardenWidthM > 0) {
             val ppm = canvasSize.width / state.gardenWidthM
             viewModel.setPixelsPerMeter(ppm)
+
+            // Beim ersten Laden: Garten zentrieren
+            if (!hasInitializedView && !state.isLoading) {
+                hasInitializedView = true
+                viewModel.resetView()
+            }
         }
     }
 
@@ -106,7 +113,10 @@ fun GardenEditorScreen(
             // Canvas
             EditorCanvas(
                 state = state,
-                onSizeChanged = { canvasSize = it },
+                onSizeChanged = { size ->
+                    canvasSize = size
+                    viewModel.setCanvasSize(size.width.toFloat(), size.height.toFloat())
+                },
                 // Bewegungsmodus
                 onNavPan = { viewModel.onNavigationPan(it) },
                 onNavZoom = { viewModel.onNavigationZoom(it) },
@@ -116,6 +126,7 @@ fun GardenEditorScreen(
                 onBuildMove = { viewModel.onBuildTouchMove(it) },
                 onBuildEnd = { viewModel.onBuildTouchEnd() },
                 onBuildPanZoom = { pan, zoom -> viewModel.onBuildPanZoom(pan, zoom) },
+                onBuildTap = { viewModel.onBuildTap(it) },
                 modifier = Modifier.fillMaxSize()
             )
 
@@ -127,14 +138,30 @@ fun GardenEditorScreen(
                     .padding(top = 8.dp)
             )
 
-            // Modus-Toggle (oben links)
-            ModeToggle(
-                mode = state.mode,
-                onToggle = { viewModel.toggleMode() },
+            // Modus-Toggle und Reset-View (oben links)
+            Column(
                 modifier = Modifier
                     .align(Alignment.TopStart)
-                    .padding(8.dp)
-            )
+                    .padding(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                ModeToggle(
+                    mode = state.mode,
+                    onToggle = { viewModel.toggleMode() }
+                )
+
+                // "Zurück zum Garten" Button - immer sichtbar als Notfall-Option
+                SmallFloatingActionButton(
+                    onClick = { viewModel.resetView() },
+                    containerColor = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.9f),
+                    contentColor = MaterialTheme.colorScheme.onSecondaryContainer
+                ) {
+                    Icon(
+                        Icons.Default.CenterFocusStrong,
+                        contentDescription = "Garten zentrieren"
+                    )
+                }
+            }
 
             // Auswahl-Info (wenn Beet ausgewählt)
             AnimatedVisibility(
@@ -275,8 +302,7 @@ private fun ModeIndicator(
 @Composable
 private fun ModeToggle(
     mode: EditorMode,
-    onToggle: () -> Unit,
-    modifier: Modifier = Modifier
+    onToggle: () -> Unit
 ) {
     val isBuild = mode == EditorMode.BUILD
     val haptic = LocalHapticFeedback.current
@@ -286,7 +312,6 @@ private fun ModeToggle(
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
             onToggle()
         },
-        modifier = modifier,
         containerColor = if (isBuild) MaterialTheme.colorScheme.primary
                          else MaterialTheme.colorScheme.secondaryContainer,
         contentColor = if (isBuild) MaterialTheme.colorScheme.onPrimary
@@ -397,12 +422,16 @@ private fun BuildToolbar(
                 onClick = { onToolSelected(BuildTool.ADD_CIRCLE_BED) }
             )
 
+            // Weg-Funktion temporär deaktiviert (PRIORITÄT 4)
+            // TODO: Später wieder aktivieren wenn stabil
+            /*
             ToolButton(
                 icon = Icons.Default.LinearScale,
                 label = "Weg",
                 isActive = activeTool == BuildTool.ADD_PATH,
                 onClick = { onToolSelected(BuildTool.ADD_PATH) }
             )
+            */
         }
     }
 }
@@ -497,6 +526,7 @@ private fun EditorCanvas(
     onBuildMove: (Offset) -> Unit,
     onBuildEnd: () -> Unit,
     onBuildPanZoom: (Offset, Float) -> Unit,
+    onBuildTap: (Offset) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val textMeasurer = rememberTextMeasurer()
@@ -561,62 +591,70 @@ private fun EditorCanvas(
                         }
                     
                     // ========== BUILD-MODUS ==========
-                    // 1 Finger = Zeichnen/Drag, 2 Finger = Pan/Zoom
+                    // 1 Finger = Zeichnen/Drag/Tap, 2 Finger = Pan/Zoom
                     EditorMode.BUILD -> Modifier
                         .pointerInput(state.tool) {
                             awaitEachGesture {
                                 val firstDown = awaitFirstDown(requireUnconsumed = false)
                                 var fingerCount = 1
                                 var lastPosition = firstDown.position
+                                val downPosition = firstDown.position
                                 var isDragging = false
                                 var isTwoFingerGesture = false
-                                
-                                // Kurz warten um zu sehen ob zweiter Finger kommt
+                                var hasMoved = false
+
+                                // Startzeit für Tap-Erkennung
                                 val startTime = System.currentTimeMillis()
-                                
+
                                 // Auf weitere Events warten
                                 while (true) {
                                     val event = awaitPointerEvent()
                                     val changes = event.changes.filter { it.pressed }
-                                    
+
                                     if (changes.isEmpty()) {
                                         // Alle Finger gehoben
+                                        val upTime = System.currentTimeMillis()
+                                        val duration = upTime - startTime
+
                                         if (isDragging && !isTwoFingerGesture) {
                                             onBuildEnd()
+                                        } else if (!isTwoFingerGesture && !hasMoved && duration < 300) {
+                                            // Kurzer Tap ohne Bewegung = nur auswählen
+                                            onBuildTap(downPosition)
                                         }
                                         break
                                     }
-                                    
+
                                     fingerCount = changes.size
-                                    
+
                                     if (fingerCount >= 2) {
                                         // ZWEI FINGER = Pan/Zoom
                                         isTwoFingerGesture = true
-                                        
+
                                         if (isDragging) {
                                             // Zeichnen abbrechen
                                             onBuildEnd()
                                             isDragging = false
                                         }
-                                        
+
                                         // Pan berechnen (Durchschnitt der Bewegungen)
                                         val avgPan = changes.map { it.positionChange() }
                                             .reduce { acc, offset -> acc + offset } / fingerCount.toFloat()
-                                        
+
                                         if (avgPan != Offset.Zero) {
                                             onBuildPanZoom(avgPan, 1f)
                                         }
-                                        
+
                                         // Zoom berechnen (Abstand zwischen Fingern)
                                         if (changes.size >= 2) {
                                             val pos1 = changes[0].position
                                             val pos2 = changes[1].position
                                             val prevPos1 = changes[0].previousPosition
                                             val prevPos2 = changes[1].previousPosition
-                                            
+
                                             val currDist = (pos1 - pos2).getDistance()
                                             val prevDist = (prevPos1 - prevPos2).getDistance()
-                                            
+
                                             if (prevDist > 0) {
                                                 val zoom = currDist / prevDist
                                                 if (zoom != 1f && zoom > 0.5f && zoom < 2f) {
@@ -624,22 +662,29 @@ private fun EditorCanvas(
                                                 }
                                             }
                                         }
-                                        
+
                                         changes.forEach { it.consume() }
                                     } else {
                                         // EIN FINGER = Zeichnen/Drag
                                         if (!isTwoFingerGesture) {
                                             val currentPos = changes.first().position
-                                            
+
+                                            // Prüfen ob genug Bewegung (für Tap-Erkennung)
+                                            val dx = abs(currentPos.x - downPosition.x)
+                                            val dy = abs(currentPos.y - downPosition.y)
+                                            if (dx > 15 || dy > 15) {
+                                                hasMoved = true
+                                            }
+
                                             if (!isDragging) {
-                                                // Zeichnen starten
+                                                // Zeichnen/Drag vorbereiten
                                                 onBuildStart(currentPos)
                                                 isDragging = true
                                             } else {
                                                 // Zeichnen fortsetzen
                                                 onBuildMove(currentPos)
                                             }
-                                            
+
                                             lastPosition = currentPos
                                             changes.forEach { it.consume() }
                                         }
@@ -806,9 +851,9 @@ private fun DrawScope.drawBed(
             style = Stroke(width = strokeWidth)
         )
 
-        // Resize handles for selected (4 points on circle)
+        // Resize handles for selected (4 points on circle) - GRÖSSER für bessere Touch-Erkennung
         if (isSelected) {
-            val handleRadius = 10f
+            val handleRadius = 16f  // Größer für bessere Touch-Erkennung
             val handlePositions = listOf(
                 Offset(centerX, centerY - radius),  // Top
                 Offset(centerX + radius, centerY),  // Right
@@ -816,8 +861,10 @@ private fun DrawScope.drawBed(
                 Offset(centerX - radius, centerY)   // Left
             )
             handlePositions.forEach { pos ->
+                // Schatten für bessere Sichtbarkeit
+                drawCircle(Color.Black.copy(alpha = 0.3f), handleRadius, Offset(pos.x + 2, pos.y + 2))
                 drawCircle(Color.White, handleRadius, pos)
-                drawCircle(color, handleRadius - 2, pos)
+                drawCircle(color, handleRadius - 3, pos)
             }
         }
     } else {
@@ -849,9 +896,9 @@ private fun DrawScope.drawBed(
             style = Stroke(width = strokeWidth)
         )
 
-        // Resize handles for selected
+        // Resize handles for selected - GRÖSSER für bessere Touch-Erkennung
         if (isSelected) {
-            val handleRadius = 10f
+            val handleRadius = 16f  // Größer für bessere Touch-Erkennung
             val corners = listOf(
                 Offset(left, top),
                 Offset(left + width, top),
@@ -859,8 +906,10 @@ private fun DrawScope.drawBed(
                 Offset(left + width, top + height)
             )
             corners.forEach { corner ->
+                // Schatten für bessere Sichtbarkeit
+                drawCircle(Color.Black.copy(alpha = 0.3f), handleRadius, Offset(corner.x + 2, corner.y + 2))
                 drawCircle(Color.White, handleRadius, corner)
-                drawCircle(color, handleRadius - 2, corner)
+                drawCircle(color, handleRadius - 3, corner)
             }
         }
     }

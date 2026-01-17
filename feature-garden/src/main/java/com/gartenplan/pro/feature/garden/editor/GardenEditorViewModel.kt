@@ -9,6 +9,7 @@ import com.gartenplan.pro.domain.model.Bed
 import com.gartenplan.pro.domain.usecase.garden.*
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
 import kotlin.math.sqrt
@@ -31,12 +32,14 @@ class GardenEditorViewModel @Inject constructor(
 
     // Pixel pro Meter - wird vom Screen gesetzt
     private var pixelsPerMeter: Float = 100f
+    private var canvasWidthPx: Float = 0f
+    private var canvasHeightPx: Float = 0f
 
     // ==================== GARTEN LADEN ====================
 
     fun loadGarden(gardenId: String) {
         _state.value = _state.value.copy(isLoading = true)
-        
+
         viewModelScope.launch {
             combine(
                 observeGardenUseCase(gardenId),
@@ -44,6 +47,10 @@ class GardenEditorViewModel @Inject constructor(
             ) { garden, beds -> Pair(garden, beds) }
             .collect { (garden, beds) ->
                 garden?.let {
+                    // Bekannte Bed-IDs merken (für Persistenz-Logik)
+                    knownBedIds.clear()
+                    beds.forEach { bed -> knownBedIds.add(bed.id) }
+
                     _state.value = _state.value.copy(
                         gardenId = it.id,
                         gardenName = it.name,
@@ -76,6 +83,14 @@ class GardenEditorViewModel @Inject constructor(
 
     fun setPixelsPerMeter(ppm: Float) {
         pixelsPerMeter = ppm
+    }
+
+    /**
+     * Setzt die Canvas-Größe für korrekte Zentrierung und Pan-Grenzen
+     */
+    fun setCanvasSize(widthPx: Float, heightPx: Float) {
+        canvasWidthPx = widthPx
+        canvasHeightPx = heightPx
     }
 
     // ==================== MODUS WECHSEL ====================
@@ -112,11 +127,13 @@ class GardenEditorViewModel @Inject constructor(
 
     /**
      * Pan im Bewegungsmodus (1 Finger)
+     * WICHTIG: Begrenzt auf Gartenfläche + kleiner Rand
      */
     fun onNavigationPan(deltaPx: Offset) {
         if (_state.value.mode != EditorMode.BEWEGUNG) return
+        val newPan = _state.value.panOffset + deltaPx / _state.value.scale
         _state.value = _state.value.copy(
-            panOffset = _state.value.panOffset + deltaPx / _state.value.scale
+            panOffset = clampPan(newPan, _state.value.scale)
         )
     }
 
@@ -125,8 +142,11 @@ class GardenEditorViewModel @Inject constructor(
      */
     fun onNavigationZoom(factor: Float) {
         if (_state.value.mode != EditorMode.BEWEGUNG) return
+        val newScale = (_state.value.scale * factor).coerceIn(0.5f, 4f)
+        // Nach Zoom: Pan neu begrenzen
         _state.value = _state.value.copy(
-            scale = (_state.value.scale * factor).coerceIn(0.5f, 4f)
+            scale = newScale,
+            panOffset = clampPan(_state.value.panOffset, newScale)
         )
     }
 
@@ -144,13 +164,30 @@ class GardenEditorViewModel @Inject constructor(
         )
     }
 
+    // ==================== BUILD-MODUS: TAP ====================
+
+    /**
+     * Tap im Build-Modus = Beet auswählen (ohne zu ziehen)
+     */
+    fun onBuildTap(positionPx: Offset) {
+        if (_state.value.mode != EditorMode.BUILD) return
+        if (_state.value.tool != BuildTool.SELECT) return
+
+        val posM = pxToMeters(positionPx)
+        val hitBed = _state.value.beds.find { it.contains(posM) }
+
+        _state.value = _state.value.copy(
+            selectedBedId = hitBed?.id
+        )
+    }
+
     // ==================== BUILD-MODUS: TOUCH START ====================
 
     fun onBuildTouchStart(positionPx: Offset) {
         if (_state.value.mode != EditorMode.BUILD) return
-        
+
         val posM = pxToMeters(positionPx)
-        
+
         when (_state.value.tool) {
             BuildTool.ADD_BED, BuildTool.ADD_CIRCLE_BED, BuildTool.ADD_PATH -> {
                 // Zeichnen starten
@@ -161,31 +198,29 @@ class GardenEditorViewModel @Inject constructor(
                 )
             }
             BuildTool.SELECT -> {
+                // Bei SELECT: Nur Position merken, NICHT sofort Drag starten
+                // Drag wird erst in onBuildTouchMove gestartet wenn genug Bewegung
                 val hitBed = _state.value.beds.find { it.contains(posM) }
-                
+
                 if (hitBed != null) {
                     // Prüfen ob Ecke getroffen (für Resize)
                     val corner = findCorner(hitBed, posM)
-                    
-                    if (corner != null) {
-                        // Resize starten
-                        _state.value = _state.value.copy(
-                            selectedBedId = hitBed.id,
-                            isResizing = true,
-                            activeCorner = corner,
-                            dragStart = posM
-                        )
-                    } else {
-                        // Drag starten
-                        _state.value = _state.value.copy(
-                            selectedBedId = hitBed.id,
-                            isDragging = true,
-                            dragStart = posM
-                        )
-                    }
+
+                    // Nur vorbereiten, nicht starten
+                    _state.value = _state.value.copy(
+                        selectedBedId = hitBed.id,
+                        activeCorner = corner,  // Merken welche Ecke (kann null sein)
+                        dragStart = posM,       // Startposition merken
+                        isDragging = false,     // Noch nicht dragging!
+                        isResizing = false
+                    )
                 } else {
-                    // Nichts getroffen
-                    _state.value = _state.value.copy(selectedBedId = null)
+                    // Nichts getroffen - Auswahl aufheben
+                    _state.value = _state.value.copy(
+                        selectedBedId = null,
+                        dragStart = null,
+                        activeCorner = null
+                    )
                 }
             }
         }
@@ -193,12 +228,15 @@ class GardenEditorViewModel @Inject constructor(
 
     // ==================== BUILD-MODUS: TOUCH MOVE ====================
 
+    // Mindestbewegung bevor Drag/Resize startet (in Metern)
+    private val dragThresholdM = 0.03f  // 3cm
+
     fun onBuildTouchMove(positionPx: Offset) {
         if (_state.value.mode != EditorMode.BUILD) return
-        
+
         val posM = pxToMeters(positionPx)
         val current = _state.value
-        
+
         when {
             current.isDrawing -> {
                 // Preview aktualisieren and check for overlap
@@ -216,6 +254,26 @@ class GardenEditorViewModel @Inject constructor(
             current.isResizing -> {
                 resizeBed(posM)
             }
+            // Noch nicht dragging, aber Beet ausgewählt und dragStart gesetzt?
+            // → Prüfen ob genug Bewegung für Drag/Resize
+            current.selectedBedId != null && current.dragStart != null -> {
+                val dx = posM.x - current.dragStart.x
+                val dy = posM.y - current.dragStart.y
+                val distance = kotlin.math.sqrt(dx * dx + dy * dy)
+
+                if (distance >= dragThresholdM) {
+                    // Genug Bewegung - jetzt Drag oder Resize starten
+                    if (current.activeCorner != null) {
+                        // Resize starten
+                        _state.value = current.copy(isResizing = true)
+                        resizeBed(posM)
+                    } else {
+                        // Drag starten
+                        _state.value = current.copy(isDragging = true)
+                        moveBed(posM)
+                    }
+                }
+            }
         }
     }
 
@@ -223,13 +281,21 @@ class GardenEditorViewModel @Inject constructor(
 
     fun onBuildTouchEnd() {
         if (_state.value.mode != EditorMode.BUILD) return
-        
+
         val current = _state.value
-        
+
         when {
             current.isDrawing -> finishDrawing()
             current.isDragging -> finishDrag()
             current.isResizing -> finishResize()
+            // Wenn dragStart gesetzt aber kein Drag/Resize gestartet wurde
+            // → War nur ein Tap, State aufräumen
+            current.dragStart != null -> {
+                _state.value = current.copy(
+                    dragStart = null,
+                    activeCorner = null
+                )
+            }
         }
     }
 
@@ -452,32 +518,63 @@ class GardenEditorViewModel @Inject constructor(
         val corner = _state.value.activeCorner ?: return
 
         val minSize = 0.2f  // Mindestens 20cm
+        val snapThreshold = SnapHelper.SNAP_THRESHOLD_M
+        val otherBeds = _state.value.beds.filter { it.id != bed.id }
+        val gardenWidth = _state.value.gardenWidthM
+        val gardenHeight = _state.value.gardenHeightM
+
+        // Sammle alle Snap-Kanten
+        val xEdges = mutableListOf(0f, gardenWidth)
+        val yEdges = mutableListOf(0f, gardenHeight)
+        otherBeds.forEach { other ->
+            xEdges.add(other.x)
+            xEdges.add(other.x + other.width)
+            yEdges.add(other.y)
+            yEdges.add(other.y + other.height)
+        }
+
+        // Snap-Funktion für einzelne Werte
+        fun snapTo(value: Float, edges: List<Float>): Pair<Float, Float?> {
+            for (edge in edges) {
+                if (kotlin.math.abs(value - edge) < snapThreshold) {
+                    return Pair(edge, edge)
+                }
+            }
+            return Pair(value, null)
+        }
+
+        val snapLinesX = mutableListOf<Float>()
+        val snapLinesY = mutableListOf<Float>()
 
         val newBounds = when (corner) {
-            ResizeCorner.TOP_LEFT -> Rect(
-                left = currentPosM.x.coerceIn(0f, bed.bounds.right - minSize),
-                top = currentPosM.y.coerceIn(0f, bed.bounds.bottom - minSize),
-                right = bed.bounds.right,
-                bottom = bed.bounds.bottom
-            )
-            ResizeCorner.TOP_RIGHT -> Rect(
-                left = bed.bounds.left,
-                top = currentPosM.y.coerceIn(0f, bed.bounds.bottom - minSize),
-                right = currentPosM.x.coerceIn(bed.bounds.left + minSize, _state.value.gardenWidthM),
-                bottom = bed.bounds.bottom
-            )
-            ResizeCorner.BOTTOM_LEFT -> Rect(
-                left = currentPosM.x.coerceIn(0f, bed.bounds.right - minSize),
-                top = bed.bounds.top,
-                right = bed.bounds.right,
-                bottom = currentPosM.y.coerceIn(bed.bounds.top + minSize, _state.value.gardenHeightM)
-            )
-            ResizeCorner.BOTTOM_RIGHT -> Rect(
-                left = bed.bounds.left,
-                top = bed.bounds.top,
-                right = currentPosM.x.coerceIn(bed.bounds.left + minSize, _state.value.gardenWidthM),
-                bottom = currentPosM.y.coerceIn(bed.bounds.top + minSize, _state.value.gardenHeightM)
-            )
+            ResizeCorner.TOP_LEFT -> {
+                val (snappedLeft, lineX) = snapTo(currentPosM.x.coerceIn(0f, bed.bounds.right - minSize), xEdges)
+                val (snappedTop, lineY) = snapTo(currentPosM.y.coerceIn(0f, bed.bounds.bottom - minSize), yEdges)
+                lineX?.let { snapLinesX.add(it) }
+                lineY?.let { snapLinesY.add(it) }
+                Rect(left = snappedLeft, top = snappedTop, right = bed.bounds.right, bottom = bed.bounds.bottom)
+            }
+            ResizeCorner.TOP_RIGHT -> {
+                val (snappedRight, lineX) = snapTo(currentPosM.x.coerceIn(bed.bounds.left + minSize, gardenWidth), xEdges)
+                val (snappedTop, lineY) = snapTo(currentPosM.y.coerceIn(0f, bed.bounds.bottom - minSize), yEdges)
+                lineX?.let { snapLinesX.add(it) }
+                lineY?.let { snapLinesY.add(it) }
+                Rect(left = bed.bounds.left, top = snappedTop, right = snappedRight, bottom = bed.bounds.bottom)
+            }
+            ResizeCorner.BOTTOM_LEFT -> {
+                val (snappedLeft, lineX) = snapTo(currentPosM.x.coerceIn(0f, bed.bounds.right - minSize), xEdges)
+                val (snappedBottom, lineY) = snapTo(currentPosM.y.coerceIn(bed.bounds.top + minSize, gardenHeight), yEdges)
+                lineX?.let { snapLinesX.add(it) }
+                lineY?.let { snapLinesY.add(it) }
+                Rect(left = snappedLeft, top = bed.bounds.top, right = bed.bounds.right, bottom = snappedBottom)
+            }
+            ResizeCorner.BOTTOM_RIGHT -> {
+                val (snappedRight, lineX) = snapTo(currentPosM.x.coerceIn(bed.bounds.left + minSize, gardenWidth), xEdges)
+                val (snappedBottom, lineY) = snapTo(currentPosM.y.coerceIn(bed.bounds.top + minSize, gardenHeight), yEdges)
+                lineX?.let { snapLinesX.add(it) }
+                lineY?.let { snapLinesY.add(it) }
+                Rect(left = bed.bounds.left, top = bed.bounds.top, right = snappedRight, bottom = snappedBottom)
+            }
         }
 
         val resizedBed = bed.copy(
@@ -488,17 +585,22 @@ class GardenEditorViewModel @Inject constructor(
         )
 
         // Check for overlap with other beds
-        val otherBeds = _state.value.beds.filter { it.id != bed.id }
         val hasOverlap = otherBeds.hasOverlap(resizedBed)
 
         if (!hasOverlap) {
             _state.value = _state.value.copy(
                 beds = _state.value.beds.map { if (it.id == bed.id) resizedBed else it },
-                hasOverlap = false
+                hasOverlap = false,
+                snapLinesX = snapLinesX,
+                snapLinesY = snapLinesY
             )
         } else {
             // Show overlap indicator but don't resize
-            _state.value = _state.value.copy(hasOverlap = true)
+            _state.value = _state.value.copy(
+                hasOverlap = true,
+                snapLinesX = emptyList(),
+                snapLinesY = emptyList()
+            )
         }
     }
 
@@ -569,7 +671,8 @@ class GardenEditorViewModel @Inject constructor(
                 width = bed.width,
                 height = bed.height,
                 colorHex = bed.colorHex,
-                plantIds = emptyList()
+                plantIds = emptyList(),
+                shape = bed.shape  // Form beibehalten!
             )
 
             if (!_state.value.beds.hasOverlap(candidate)) {
@@ -587,7 +690,8 @@ class GardenEditorViewModel @Inject constructor(
                 width = bed.width,
                 height = bed.height,
                 colorHex = bed.colorHex,
-                plantIds = emptyList()
+                plantIds = emptyList(),
+                shape = bed.shape  // Form beibehalten!
             )
         }
 
@@ -611,21 +715,50 @@ class GardenEditorViewModel @Inject constructor(
     /**
      * Im Build-Modus: Zwei-Finger-Geste für Pan/Zoom
      * WICHTIG: Nur wenn NICHT gerade ein Objekt bewegt wird!
+     * Pan ist begrenzt auf Gartenfläche + Rand
      */
     fun onBuildPanZoom(pan: Offset, zoom: Float) {
         if (_state.value.mode != EditorMode.BUILD) return
         if (_state.value.isDragging || _state.value.isResizing || _state.value.isDrawing) return
-        
+
+        val newScale = (_state.value.scale * zoom).coerceIn(0.5f, 4f)
+        val newPan = _state.value.panOffset + pan / _state.value.scale
+
         _state.value = _state.value.copy(
-            scale = (_state.value.scale * zoom).coerceIn(0.5f, 4f),
-            panOffset = _state.value.panOffset + pan / _state.value.scale
+            scale = newScale,
+            panOffset = clampPan(newPan, newScale)
         )
     }
 
+    /**
+     * Zentriert den Garten exakt in der Mitte des sichtbaren Bereichs.
+     * Berechnet den optimalen Scale, damit der Garten vollständig sichtbar ist.
+     */
     fun resetView() {
+        if (canvasWidthPx <= 0 || canvasHeightPx <= 0) {
+            // Fallback wenn Canvas-Größe noch nicht bekannt
+            _state.value = _state.value.copy(scale = 1f, panOffset = Offset.Zero)
+            return
+        }
+
+        val gardenWidthPx = _state.value.gardenWidthM * pixelsPerMeter
+        val gardenHeightPx = _state.value.gardenHeightM * pixelsPerMeter
+
+        // Berechne optimalen Scale, damit Garten vollständig sichtbar (mit etwas Rand)
+        val padding = 40f  // 40px Rand
+        val scaleX = (canvasWidthPx - padding * 2) / gardenWidthPx
+        val scaleY = (canvasHeightPx - padding * 2) / gardenHeightPx
+        val optimalScale = minOf(scaleX, scaleY).coerceIn(0.5f, 2f)
+
+        // Berechne Pan um Garten zu zentrieren
+        // Bei scale=1 und pan=0 ist der Garten oben-links
+        // Wir wollen ihn in der Mitte des Canvas
+        val centeredPanX = (canvasWidthPx - gardenWidthPx * optimalScale) / 2f / optimalScale
+        val centeredPanY = (canvasHeightPx - gardenHeightPx * optimalScale) / 2f / optimalScale
+
         _state.value = _state.value.copy(
-            scale = 1f,
-            panOffset = Offset.Zero
+            scale = optimalScale,
+            panOffset = Offset(centeredPanX, centeredPanY)
         )
     }
 
@@ -711,6 +844,44 @@ class GardenEditorViewModel @Inject constructor(
 
     // ==================== HELPER ====================
 
+    /**
+     * Begrenzt Pan symmetrisch, damit der Garten nie komplett aus dem Sichtfeld verschwindet.
+     * Der Garten bleibt immer mindestens zu 40% sichtbar.
+     * Grenzen sind in alle Richtungen gleich!
+     */
+    private fun clampPan(pan: Offset, scale: Float): Offset {
+        if (canvasWidthPx <= 0 || canvasHeightPx <= 0) {
+            // Fallback wenn Canvas-Größe noch nicht bekannt
+            val gardenWidthPx = _state.value.gardenWidthM * pixelsPerMeter
+            val gardenHeightPx = _state.value.gardenHeightM * pixelsPerMeter
+            val margin = maxOf(gardenWidthPx, gardenHeightPx) * 0.5f
+            return Offset(
+                pan.x.coerceIn(-margin, margin),
+                pan.y.coerceIn(-margin, margin)
+            )
+        }
+
+        val gardenWidthPx = _state.value.gardenWidthM * pixelsPerMeter
+        val gardenHeightPx = _state.value.gardenHeightM * pixelsPerMeter
+
+        // Symmetrischer Puffer: Garten darf maximal 60% außerhalb sein in jede Richtung
+        // Das bedeutet mindestens 40% bleibt immer sichtbar
+        val bufferFraction = 0.6f
+
+        // Berechne zentrierte Position (wo der Garten mittig wäre)
+        val centeredPanX = (canvasWidthPx - gardenWidthPx * scale) / 2f / scale
+        val centeredPanY = (canvasHeightPx - gardenHeightPx * scale) / 2f / scale
+
+        // Symmetrischer Spielraum um die Mitte herum
+        val maxOffsetX = gardenWidthPx * bufferFraction
+        val maxOffsetY = gardenHeightPx * bufferFraction
+
+        return Offset(
+            pan.x.coerceIn(centeredPanX - maxOffsetX, centeredPanX + maxOffsetX),
+            pan.y.coerceIn(centeredPanY - maxOffsetY, centeredPanY + maxOffsetY)
+        )
+    }
+
     private fun pxToMeters(px: Offset): Offset {
         val scale = _state.value.scale
         val pan = _state.value.panOffset
@@ -721,9 +892,10 @@ class GardenEditorViewModel @Inject constructor(
     }
 
     private fun findCorner(bed: EditorBed, posM: Offset): ResizeCorner? {
-        val tolerance = 0.15f  // 15cm Toleranz
+        // 25cm Toleranz für bessere Touch-Erkennung auf Mobilgeräten
+        val tolerance = 0.25f
         val b = bed.bounds
-        
+
         return when {
             distance(posM, Offset(b.left, b.top)) < tolerance -> ResizeCorner.TOP_LEFT
             distance(posM, Offset(b.right, b.top)) < tolerance -> ResizeCorner.TOP_RIGHT
@@ -749,31 +921,53 @@ class GardenEditorViewModel @Inject constructor(
         return y.coerceIn(0f, maxY)
     }
 
+    // Speichert bekannte Bed-IDs, um zu wissen ob ein Beet neu ist
+    private val knownBedIds = mutableSetOf<String>()
+
     private fun persistBed(bed: EditorBed) {
+        val gardenId = _state.value.gardenId
+        if (gardenId.isEmpty()) {
+            android.util.Log.e("GardenEditor", "Cannot persist bed: gardenId is empty")
+            return
+        }
+
         viewModelScope.launch {
             try {
                 val domainBed = Bed(
                     id = bed.id,
-                    gardenId = _state.value.gardenId,
-                    name = bed.name.ifEmpty { "Beet" },
+                    gardenId = gardenId,
+                    name = bed.name.ifEmpty { if (bed.isCircle) "Rundbeet" else "Beet" },
                     positionX = (bed.x * 100).toInt(),
                     positionY = (bed.y * 100).toInt(),
                     widthCm = (bed.width * 100).toInt(),
                     heightCm = (bed.height * 100).toInt(),
+                    shape = bed.shape,
                     colorHex = bed.colorHex
                 )
-                updateBedUseCase(domainBed)
+
+                if (bed.id in knownBedIds) {
+                    // Bekanntes Beet aktualisieren
+                    updateBedUseCase(domainBed)
+                    android.util.Log.d("GardenEditor", "Updated bed: ${bed.id}")
+                } else {
+                    // Neues Beet - direkt erstellen mit der EditorBed ID
+                    createBedUseCase.createWithId(
+                        id = bed.id,
+                        gardenId = gardenId,
+                        name = domainBed.name,
+                        positionX = domainBed.positionX,
+                        positionY = domainBed.positionY,
+                        widthCm = domainBed.widthCm,
+                        heightCm = domainBed.heightCm,
+                        shape = domainBed.shape,
+                        colorHex = domainBed.colorHex
+                    )
+                    knownBedIds.add(bed.id)
+                    android.util.Log.d("GardenEditor", "Created new bed: ${bed.id}")
+                }
             } catch (e: Exception) {
-                // Neues Beet erstellen
-                createBedUseCase(
-                    gardenId = _state.value.gardenId,
-                    name = bed.name.ifEmpty { "Beet" },
-                    positionX = (bed.x * 100).toInt(),
-                    positionY = (bed.y * 100).toInt(),
-                    widthCm = (bed.width * 100).toInt(),
-                    heightCm = (bed.height * 100).toInt(),
-                    colorHex = bed.colorHex
-                )
+                android.util.Log.e("GardenEditor", "Failed to persist bed: ${e.message}", e)
+                showMessage("Fehler beim Speichern des Beets")
             }
         }
     }
@@ -785,6 +979,7 @@ class GardenEditorViewModel @Inject constructor(
         y = positionY / 100f,
         width = widthCm / 100f,
         height = heightCm / 100f,
-        colorHex = colorHex
+        colorHex = colorHex,
+        shape = shape
     )
 }
