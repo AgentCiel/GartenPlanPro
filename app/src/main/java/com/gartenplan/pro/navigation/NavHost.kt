@@ -11,6 +11,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.navArgument
 import com.gartenplan.pro.domain.model.Plant
 import com.gartenplan.pro.feature.calendar.CalendarScreen
+import com.gartenplan.pro.feature.calendar.TaskListScreen
+import com.gartenplan.pro.feature.calendar.SowingCalendarScreen
 import com.gartenplan.pro.feature.compost.CompostListScreen
 import com.gartenplan.pro.feature.garden.GardenListScreen
 import com.gartenplan.pro.feature.garden.CreateGardenScreen
@@ -155,11 +157,37 @@ fun GartenNavHost(
         }
 
         // ==================== CALENDAR ====================
-        
+
         composable(route = Screen.Calendar.route) {
             CalendarScreen(
                 onTaskClick = { taskId ->
                     navController.navigate(Routes.taskDetail(taskId))
+                },
+                onNavigateToTaskList = {
+                    navController.navigate(Routes.TASK_LIST)
+                },
+                onNavigateToSowingCalendar = {
+                    navController.navigate(Routes.SOWING_CALENDAR)
+                }
+            )
+        }
+
+        // Task List Screen
+        composable(route = Routes.TASK_LIST) {
+            TaskListScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onTaskClick = { taskId ->
+                    navController.navigate(Routes.taskDetail(taskId))
+                }
+            )
+        }
+
+        // Sowing Calendar Screen
+        composable(route = Routes.SOWING_CALENDAR) {
+            SowingCalendarScreen(
+                onNavigateBack = { navController.popBackStack() },
+                onPlantClick = { plantId ->
+                    navController.navigate(Routes.plantDetail(plantId))
                 }
             )
         }

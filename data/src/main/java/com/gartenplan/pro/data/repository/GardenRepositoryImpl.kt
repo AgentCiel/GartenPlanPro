@@ -1,6 +1,7 @@
 package com.gartenplan.pro.data.repository
 
 import com.gartenplan.pro.data.local.dao.GardenDao
+import com.gartenplan.pro.data.local.dao.GardenWithBeds
 import com.gartenplan.pro.data.local.dao.PlantDao
 import com.gartenplan.pro.data.mapper.*
 import com.gartenplan.pro.domain.model.Bed
@@ -19,8 +20,13 @@ class GardenRepositoryImpl @Inject constructor(
 ) : GardenRepository {
 
     override fun getAllGardens(): Flow<List<Garden>> {
-        return gardenDao.getAllGardens().map { gardens ->
-            gardens.map { it.toDomain() }
+        // Lade Gärten MIT ihren Beeten für korrekte Beet-Anzeige
+        return gardenDao.getAllGardensWithBeds().map { gardensWithBeds ->
+            gardensWithBeds.map { gardenWithBeds ->
+                gardenWithBeds.garden.toDomain(
+                    beds = gardenWithBeds.beds.map { it.toDomain() }
+                )
+            }
         }
     }
 

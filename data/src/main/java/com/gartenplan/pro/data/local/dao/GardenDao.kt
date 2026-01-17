@@ -129,10 +129,17 @@ interface GardenDao {
     suspend fun getPreviousYearPlacements(bedId: String, currentYear: Int): List<PlantPlacementEntity>
     
     // ==================== COMBINED QUERIES ====================
-    
+
     @Transaction
     @Query("SELECT * FROM gardens WHERE id = :gardenId")
     fun getGardenWithBeds(gardenId: String): Flow<GardenWithBeds?>
+
+    @Transaction
+    @Query("SELECT * FROM gardens ORDER BY updatedAt DESC")
+    fun getAllGardensWithBeds(): Flow<List<GardenWithBeds>>
+
+    @Query("SELECT COUNT(*) FROM beds WHERE gardenId = :gardenId")
+    suspend fun getBedCountByGarden(gardenId: String): Int
 }
 
 /**

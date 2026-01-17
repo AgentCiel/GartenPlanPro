@@ -35,6 +35,9 @@ class GardenEditorViewModel @Inject constructor(
     private var canvasWidthPx: Float = 0f
     private var canvasHeightPx: Float = 0f
 
+    // Flag um doppeltes Erstellen zu verhindern
+    private var gardenCreationStarted = false
+
     // ==================== GARTEN LADEN ====================
 
     fun loadGarden(gardenId: String) {
@@ -65,19 +68,32 @@ class GardenEditorViewModel @Inject constructor(
     }
 
     fun createNewGarden(name: String, widthM: Float, heightM: Float) {
+        // Verhindere doppeltes Erstellen durch Recomposition
+        if (gardenCreationStarted) {
+            android.util.Log.d("GardenEditor", "Garden creation already in progress, skipping duplicate call")
+            return
+        }
+        gardenCreationStarted = true
+
         viewModelScope.launch {
-            val id = createGardenUseCase(
-                name = name,
-                widthCm = (widthM * 100).toInt(),
-                heightCm = (heightM * 100).toInt()
-            )
-            _state.value = _state.value.copy(
-                gardenId = id,
-                gardenName = name,
-                gardenWidthM = widthM,
-                gardenHeightM = heightM,
-                isLoading = false
-            )
+            try {
+                val id = createGardenUseCase(
+                    name = name,
+                    widthCm = (widthM * 100).toInt(),
+                    heightCm = (heightM * 100).toInt()
+                )
+                _state.value = _state.value.copy(
+                    gardenId = id,
+                    gardenName = name,
+                    gardenWidthM = widthM,
+                    gardenHeightM = heightM,
+                    isLoading = false
+                )
+                android.util.Log.d("GardenEditor", "Garden created successfully: $id")
+            } catch (e: Exception) {
+                android.util.Log.e("GardenEditor", "Failed to create garden: ${e.message}", e)
+                gardenCreationStarted = false  // Reset bei Fehler
+            }
         }
     }
 

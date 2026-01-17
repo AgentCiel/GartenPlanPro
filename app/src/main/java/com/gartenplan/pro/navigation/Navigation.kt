@@ -64,6 +64,8 @@ object Routes {
     
     // Calendar
     const val CALENDAR = "calendar"
+    const val TASK_LIST = "calendar/tasks"
+    const val SOWING_CALENDAR = "calendar/sowing"
     const val TASK_DETAIL = "task/{taskId}"
     
     // Compost
