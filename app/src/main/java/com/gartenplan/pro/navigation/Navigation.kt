@@ -35,15 +35,15 @@ sealed class Screen(
         unselectedIcon = Icons.Outlined.CalendarMonth
     )
     
-    data object Compost : Screen(
-        route = "compost",
-        title = "Kompost",
-        selectedIcon = Icons.Filled.Recycling,
-        unselectedIcon = Icons.Outlined.Recycling
+    data object Moon : Screen(
+        route = "moon",
+        title = "Mond",
+        selectedIcon = Icons.Filled.NightsStay,
+        unselectedIcon = Icons.Outlined.NightsStay
     )
     
     companion object {
-        val bottomNavItems = listOf(Garden, Plants, Calendar, Compost)
+        val bottomNavItems = listOf(Garden, Plants, Calendar, Moon)
     }
 }
 
@@ -68,9 +68,8 @@ object Routes {
     const val SOWING_CALENDAR = "calendar/sowing"
     const val TASK_DETAIL = "task/{taskId}"
     
-    // Compost
-    const val COMPOST_LIST = "compost"
-    const val COMPOST_DETAIL = "compost/{compostId}"
+    // Moon
+    const val MOON = "moon"
     
     // Helper Functions
     fun gardenEditor(gardenId: String) = "garden/editor/$gardenId"
@@ -79,5 +78,4 @@ object Routes {
     fun bedDetail(bedId: String) = "garden/bed/$bedId"
     fun plantDetail(plantId: String) = "plant/$plantId"
     fun taskDetail(taskId: String) = "task/$taskId"
-    fun compostDetail(compostId: String) = "compost/$compostId"
 }

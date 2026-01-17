@@ -13,7 +13,7 @@ import com.gartenplan.pro.domain.model.Plant
 import com.gartenplan.pro.feature.calendar.CalendarScreen
 import com.gartenplan.pro.feature.calendar.TaskListScreen
 import com.gartenplan.pro.feature.calendar.SowingCalendarScreen
-import com.gartenplan.pro.feature.compost.CompostListScreen
+import com.gartenplan.pro.feature.moon.MoonScreen
 import com.gartenplan.pro.feature.garden.GardenListScreen
 import com.gartenplan.pro.feature.garden.CreateGardenScreen
 import com.gartenplan.pro.feature.garden.editor.GardenEditorScreen
@@ -192,15 +192,10 @@ fun GartenNavHost(
             )
         }
 
-        // ==================== COMPOST ====================
-        
-        composable(route = Screen.Compost.route) {
-            CompostListScreen(
-                onCompostClick = { compostId ->
-                    navController.navigate(Routes.compostDetail(compostId))
-                },
-                onCreateCompost = { }
-            )
+        // ==================== MOON ====================
+
+        composable(route = Screen.Moon.route) {
+            MoonScreen()
         }
     }
 
